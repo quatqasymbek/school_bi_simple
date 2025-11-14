@@ -20,17 +20,16 @@
     <!-- SheetJS (Excel reader) -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-    <!-- Pyodide (Python runtime without pandas) -->
+    <!-- Pyodide (Python runtime WITHOUT pandas) -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
 
-    <!-- Polars (DataFrame engine in WASM) -->
-    <script src="https://cdn.jsdelivr.net/npm/@polars/js@0.12.0/dist/polars.min.js"></script>
+    <!-- Polars (WASM DataFrame engine, UMD bundle for GitHub Pages) -->
+    <script src="https://unpkg.com/@polars/js@0.12.0/dist/polars.umd.js"></script>
 
-    <!-- Plotly (Charts) -->
+    <!-- Plotly charts -->
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 
-    <!-- Our main JS (renamed to bypass caching problems) -->
-    <script src="main.js?v=100000001"></script>
-
+    <!-- Main JS -->
+    <script src="main.js?v=200000002"></script>
 </body>
 </html>

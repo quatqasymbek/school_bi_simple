@@ -4,25 +4,60 @@ const logEl = document.getElementById("log");
 const fileInput = document.getElementById("excelUpload");
 const termSelect = document.getElementById("termSelect");
 const subjectSelect = document.getElementById("subjectSelect");
+const navButtons = document.querySelectorAll(".nav-btn");
+const sections = {
+    overview: document.getElementById("section-overview"),
+    "by-class": document.getElementById("section-by-class"),
+    "by-subject": document.getElementById("section-by-subject"),
+    "by-teacher": document.getElementById("section-by-teacher"),
+    attendance: document.getElementById("section-attendance"),
+    trends: document.getElementById("section-trends"),
+};
 
 // Global storage of all rows from ASSESSMENTS
 let allRows = [];
 
-// Simple logger
+// ---------- UI helpers ----------
+
 function log(msg) {
     console.log(msg);
     logEl.textContent += msg + "\n";
+    logEl.scrollTop = logEl.scrollHeight;
 }
 
-// ---------- Helpers ----------
+function showSection(sectionKey) {
+    // toggle sidebar active
+    navButtons.forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.section === sectionKey);
+    });
+    // toggle sections
+    for (const [key, el] of Object.entries(sections)) {
+        el.classList.toggle("active", key === sectionKey);
+    }
+}
 
-// Get unique values from an array
+// Navigation click handlers
+navButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+        const target = btn.dataset.section;
+        showSection(target);
+        log(`Switched to page: ${target}`);
+        // When user goes to "By Class", make sure chart matches current filters
+        if (target === "by-class" && allRows.length > 0) {
+            updateDashboardByClass();
+        }
+    });
+});
+
+// ---------- Data helpers ----------
+
 function unique(arr) {
-    return Array.from(new Set(arr)).filter(v => v !== null && v !== undefined && v !== "");
+    return Array.from(new Set(arr)).filter(
+        v => v !== null && v !== undefined && v !== ""
+    );
 }
 
-// Filter data based on current UI selections
-function getFilteredRows() {
+function getFilteredRowsByClass() {
     const term = termSelect.value;
     const subject = subjectSelect.value;
 
@@ -33,7 +68,6 @@ function getFilteredRows() {
     });
 }
 
-// Compute class-level averages
 function computeClassAverages(rows) {
     const groups = {}; // { className: { sum: ..., count: ... } }
 
@@ -45,7 +79,7 @@ function computeClassAverages(rows) {
             groups[cls] = { sum: 0, count: 0 };
         }
 
-        // Prefer final_percent if exists, otherwise final_5scale
+        // Prefer final_percent, otherwise final_5scale
         const val = Number(r.final_percent ?? r.final_5scale ?? NaN);
         if (!Number.isNaN(val)) {
             groups[cls].sum += val;
@@ -59,10 +93,11 @@ function computeClassAverages(rows) {
     })).sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0));
 }
 
-// Render Plotly bar chart
-function renderChart(summary) {
-    if (summary.length === 0) {
-        Plotly.newPlot("chart", [], {
+function renderClassChart(summary) {
+    const chartDiv = document.getElementById("chart-class");
+
+    if (!summary.length) {
+        Plotly.newPlot(chartDiv, [], {
             title: "No data for selected filters",
             xaxis: { title: "Class" },
             yaxis: { title: "Average grade" }
@@ -73,7 +108,7 @@ function renderChart(summary) {
     const x = summary.map(r => r.class);
     const y = summary.map(r => r.avg);
 
-    Plotly.newPlot("chart", [{
+    Plotly.newPlot(chartDiv, [{
         x,
         y,
         type: "bar"
@@ -84,23 +119,24 @@ function renderChart(summary) {
     });
 }
 
-// Recompute + rerender dashboard based on current filters
-function updateDashboard() {
+function updateDashboardByClass() {
     if (!allRows.length) {
-        log("No data loaded yet.");
+        log("No data loaded yet, cannot update By Class dashboard.");
         return;
     }
-    const filtered = getFilteredRows();
+    const filtered = getFilteredRowsByClass();
     const summary = computeClassAverages(filtered);
-    log(`Filtered rows: ${filtered.length}, classes: ${summary.length}`);
-    renderChart(summary);
+    log(`By Class → filtered rows: ${filtered.length}, classes: ${summary.length}`);
+    renderClassChart(summary);
 }
 
-// When user changes term or subject
-termSelect.addEventListener("change", updateDashboard);
-subjectSelect.addEventListener("change", updateDashboard);
+// ---------- Event handlers ----------
 
-// When user uploads Excel file
+// Filters for By Class page
+termSelect.addEventListener("change", updateDashboardByClass);
+subjectSelect.addEventListener("change", updateDashboardByClass);
+
+// Excel upload
 fileInput.addEventListener("change", async () => {
     log("Upload event fired.");
 
@@ -112,7 +148,7 @@ fileInput.addEventListener("change", async () => {
 
     log("File selected: " + file.name);
 
-    // Read Excel file
+    // Read Excel
     const data = await file.arrayBuffer();
     const workbook = XLSX.read(data, { type: "array" });
 
@@ -123,7 +159,7 @@ fileInput.addEventListener("change", async () => {
         return;
     }
 
-    // Read ASSESSMENTS as array of JS objects
+    // Parse ASSESSMENTS
     const rawRows = XLSX.utils.sheet_to_json(
         workbook.Sheets["ASSESSMENTS"],
         { defval: null }
@@ -131,7 +167,7 @@ fileInput.addEventListener("change", async () => {
 
     log("Rows loaded from ASSESSMENTS: " + rawRows.length);
 
-    // Normalize / clean rows
+    // Normalize / clean
     allRows = rawRows.map(r => ({
         student_id: r.student_id ?? r["student_id"] ?? null,
         student_name: r.student_name ?? r["student_name"] ?? null,
@@ -170,6 +206,12 @@ fileInput.addEventListener("change", async () => {
     log("Terms: " + terms.join(", "));
     log("Subjects: " + subjects.join(", "));
 
-    // Initial dashboard
-    updateDashboard();
+    // If user is already on By Class page, update chart
+    if (sections["by-class"].classList.contains("active")) {
+        updateDashboardByClass();
+    }
 });
+
+// Initial state
+showSection("overview");
+log("App initialized. Please upload an Excel file.");

@@ -6,7 +6,7 @@
 
     <!-- Plotly -->
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-    <!-- SheetJS (must come BEFORE main.js) -->
+    <!-- SheetJS -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
     <style>
@@ -49,7 +49,7 @@
             padding: 20px;
         }
 
-        .active {
+        .page.active {
             display: block !important;
         }
 
@@ -80,20 +80,31 @@
         #upload-area {
             padding: 20px;
         }
+
+        #log {
+            font-family: monospace;
+            white-space: pre-wrap;
+            font-size: 11px;
+            max-height: 150px;
+            overflow-y: auto;
+            background: #111;
+            color: #0f0;
+            padding: 8px;
+            margin: 0 20px 20px;
+            border-radius: 6px;
+        }
     </style>
 </head>
 
 <body>
 <header>School BI Dashboard</header>
 
-<!-- ------------------ UPLOAD AREA ------------------- -->
 <div id="upload-area">
     <p><b>Upload Excel file:</b></p>
     <input type="file" id="excelUpload" />
     <p id="status"></p>
 </div>
 
-<!-- ------------------ NAV BAR ------------------- -->
 <nav>
     <button onclick="switchPage('overview')">Overview</button>
     <button onclick="switchPage('by-class')">By Class</button>
@@ -103,13 +114,16 @@
     <button onclick="switchPage('trends')">Trends</button>
 </nav>
 
-<!-- ------------------ OVERVIEW ------------------- -->
+<pre id="log"></pre>
+
+<!------------------------- OVERVIEW --------------------------->
 <div id="overview" class="page active">
     <h2>Overview</h2>
-    <p>Upload data to view insights.</p>
+    <p>Upload data to view insights. Use the tabs above to explore different dashboards.</p>
+    <div class="chart-container" id="chart-overview-school"></div>
 </div>
 
-<!-- ------------------ BY CLASS ------------------- -->
+<!------------------------- BY CLASS --------------------------->
 <div id="by-class" class="page">
 
     <h2>Performance by Class</h2>
@@ -128,9 +142,10 @@
     <div class="chart-container" id="chart-class-avg"></div>
     <div class="chart-container" id="chart-class-dist"></div>
     <div class="chart-container" id="chart-class-trend"></div>
+    <div class="chart-container" id="chart-class-heatmap"></div>
 </div>
 
-<!-- ------------------ BY SUBJECT ------------------- -->
+<!------------------------- BY SUBJECT --------------------------->
 <div id="by-subject" class="page">
 
     <h2>Performance by Subject</h2>
@@ -146,9 +161,10 @@
     <div class="chart-container" id="chart-subject-class"></div>
     <div class="chart-container" id="chart-subject-dist"></div>
     <div class="chart-container" id="chart-subject-trend"></div>
+    <div class="chart-container" id="chart-subject-heatmap"></div>
 </div>
 
-<!-- ------------------ BY TEACHER ------------------- -->
+<!------------------------- BY TEACHER --------------------------->
 <div id="by-teacher" class="page">
 
     <h2>Performance by Teacher</h2>
@@ -166,7 +182,7 @@
     <div class="chart-container" id="chart-teacher-trend"></div>
 </div>
 
-<!-- ------------------ ATTENDANCE ------------------- -->
+<!------------------------- ATTENDANCE --------------------------->
 <div id="attendance" class="page">
     <h2>Attendance</h2>
     <div class="chart-container" id="chart-attendance-total"></div>
@@ -174,7 +190,7 @@
     <div class="chart-container" id="chart-attendance-trend"></div>
 </div>
 
-<!-- ------------------ TRENDS ------------------- -->
+<!------------------------- TRENDS --------------------------->
 <div id="trends" class="page">
     <h2>Longitudinal Trends</h2>
     <div class="chart-container" id="chart-trend-class"></div>
@@ -182,11 +198,13 @@
     <div class="chart-container" id="chart-trend-school"></div>
 </div>
 
-<!-- ------------------ JS MODULES ------------------- -->
+<!-- JS MODULES -->
 <script src="utils.js"></script>
 <script src="dashboard_class.js"></script>
 <script src="dashboard_subject.js"></script>
 <script src="dashboard_teacher.js"></script>
+<script src="attendance.js"></script>
+<script src="trends.js"></script>
 <script src="main.js"></script>
 
 </body>

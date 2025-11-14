@@ -3,7 +3,7 @@ window.SBI_Subject = (function () {
     const state = SBI.state;
 
     let subjectSelect, termSelect;
-    let chartClass, chartDist, chartTrend;
+    let chartClass, chartDist, chartTrend, chartHeat;
 
     function init() {
         subjectSelect = document.getElementById("subjectSubjectSelect");
@@ -12,17 +12,18 @@ window.SBI_Subject = (function () {
         chartClass = document.getElementById("chart-subject-class");
         chartDist = document.getElementById("chart-subject-dist");
         chartTrend = document.getElementById("chart-subject-trend");
+        chartHeat = document.getElementById("chart-subject-heatmap");
 
         if (subjectSelect) subjectSelect.addEventListener("change", update);
         if (termSelect) termSelect.addEventListener("change", update);
     }
 
     function populateFilters() {
-        const { allRows } = state;
-        if (!allRows.length) return;
+        const rows = state.allRows;
+        if (!rows.length) return;
 
-        const terms = SBI.unique(allRows.map(r => r.term));
-        const subjects = SBI.unique(allRows.map(r => r.subject));
+        const subjects = state.allSubjects;
+        const terms = state.allTerms;
 
         if (subjectSelect) {
             subjectSelect.innerHTML = '<option value="all">All subjects</option>';
@@ -44,26 +45,22 @@ window.SBI_Subject = (function () {
     }
 
     function filteredRows() {
-        const { allRows } = state;
+        const rows = state.allRows;
         const subj = subjectSelect?.value || "all";
         const term = termSelect?.value || "all";
 
-        return allRows.filter(r =>
+        return rows.filter(r =>
             (subj === "all" || r.subject === subj) &&
             (term === "all" || r.term === term)
         );
     }
 
-    function computeSubjectClassAverages(rows) {
-        const groups = {};
-        rows.forEach(r => {
-            if (!r.class) return;
-            const val = Number(r.final_percent ?? r.final_5scale ?? NaN);
-            if (Number.isNaN(val)) return;
-
-            if (!groups[r.class]) groups[r.class] = [];
-            groups[r.class].push(val);
-        });
+    function computeClassAverages(rows) {
+        const groups = SBI.groupBy(
+            rows,
+            r => r.class,
+            r => Number(r.final_percent ?? r.final_5scale ?? NaN)
+        );
 
         return Object.entries(groups).map(([cls, vals]) => ({
             class: cls,
@@ -91,7 +88,7 @@ window.SBI_Subject = (function () {
             text: stats.map(s => `N=${s.n}, σ≈${s.std?.toFixed(1) ?? "NA"}`),
             type: "bar"
         }], {
-            title: "Average grade by class (selected subject)",
+            title: "Average grade by class (subject filter)",
             xaxis: { title: "Class" },
             yaxis: { title: "Average grade" }
         });
@@ -108,7 +105,7 @@ window.SBI_Subject = (function () {
             Plotly.newPlot(chartDist, [], {
                 title: "No data (distribution)",
                 xaxis: { title: "Grade" },
-                yaxis: { title: "Number of students" }
+                yaxis: { title: "Students" }
             });
             return;
         }
@@ -117,34 +114,32 @@ window.SBI_Subject = (function () {
             x: vals,
             type: "histogram"
         }], {
-            title: "Distribution of grades (selected subject)",
+            title: "Distribution of grades (selected subject/term)",
             xaxis: { title: "Grade" },
             yaxis: { title: "Students" }
         });
     }
 
     function computeTrend(subj) {
-        const { allRows, allTerms } = state;
+        const rows = state.allRows;
+        const terms = state.allTerms;
         if (!subj || subj === "all") return [];
 
-        const byTerm = {};
-        allRows.forEach(r => {
-            if (r.subject !== subj) return;
-            const val = Number(r.final_percent ?? r.final_5scale ?? NaN);
-            if (Number.isNaN(val)) return;
+        const grouped = SBI.groupBy(
+            rows.filter(r => r.subject === subj),
+            r => r.term,
+            r => Number(r.final_percent ?? r.final_5scale ?? NaN)
+        );
 
-            if (!byTerm[r.term]) byTerm[r.term] = [];
-            byTerm[r.term].push(val);
-        });
-
-        return allTerms.map(t => ({
+        return terms.map(t => ({
             term: t,
-            avg: byTerm[t] ? SBI.mean(byTerm[t]) : null
+            avg: SBI.mean(grouped[t] || [])
         }));
     }
 
     function renderTrend(subj) {
         if (!chartTrend) return;
+
         if (!subj || subj === "all") {
             Plotly.newPlot(chartTrend, [], {
                 title: "Select a subject to see trend",
@@ -156,9 +151,10 @@ window.SBI_Subject = (function () {
 
         const trend = computeTrend(subj);
         const valid = trend.filter(p => p.avg !== null);
+
         if (!valid.length) {
             Plotly.newPlot(chartTrend, [], {
-                title: "No data (trend)",
+                title: "No trend data for this subject",
                 xaxis: { title: "Term" },
                 yaxis: { title: "Average grade" }
             });
@@ -176,16 +172,46 @@ window.SBI_Subject = (function () {
         });
     }
 
+    function renderHeatmap() {
+        if (!chartHeat) return;
+        const rows = state.allRows;
+        const terms = state.allTerms;
+        const subjects = state.allSubjects;
+
+        const matrix = subjects.map(subj => {
+            return terms.map(term => {
+                const vals = rows
+                    .filter(r => r.subject === subj && r.term === term)
+                    .map(r => Number(r.final_percent ?? r.final_5scale ?? NaN))
+                    .filter(v => !Number.isNaN(v));
+                return SBI.mean(vals);
+            });
+        });
+
+        Plotly.newPlot(chartHeat, [{
+            z: matrix,
+            x: terms,
+            y: subjects,
+            type: "heatmap",
+            colorscale: "Viridis"
+        }], {
+            title: "Subject × Term heatmap (average grade)",
+            xaxis: { title: "Term" },
+            yaxis: { title: "Subject" }
+        });
+    }
+
     function update() {
         const rows = filteredRows();
-        SBI.log && SBI.log(`By Subject → filtered rows: ${rows.length}`);
+        SBI.log(`By Subject → filtered rows: ${rows.length}`);
 
-        const stats = computeSubjectClassAverages(rows);
+        const stats = computeClassAverages(rows);
         renderClassChart(stats);
         renderDistribution(rows);
 
         const subj = subjectSelect?.value || "all";
         renderTrend(subj);
+        renderHeatmap();
     }
 
     function onDataLoaded() {
@@ -199,3 +225,5 @@ window.SBI_Subject = (function () {
         update
     };
 })();
+
+SBI_Subject.init();

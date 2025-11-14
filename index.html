@@ -93,6 +93,48 @@
             margin: 0 20px 20px;
             border-radius: 6px;
         }
+
+        /* ---------------- AI PANEL ---------------- */
+        .ai-panel {
+            margin-top: 20px;
+            background: #fff7e6;
+            border-radius: 10px;
+            padding: 15px;
+            border: 1px solid #f0d29c;
+            font-size: 14px;
+        }
+
+        .ai-panel h3 {
+            margin-top: 0;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+
+        .ai-panel pre {
+            white-space: pre-wrap;
+            font-family: inherit;
+            font-size: 13px;
+            background: #fffdf7;
+            padding: 10px;
+            border-radius: 6px;
+            max-height: 260px;
+            overflow-y: auto;
+        }
+
+        .ai-panel button {
+            padding: 6px 12px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            background: #2b4c7e;
+            color: white;
+        }
+
+        .ai-panel button:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
     </style>
 </head>
 
@@ -120,7 +162,16 @@
 <div id="overview" class="page active">
     <h2>Overview</h2>
     <p>Upload data to view insights. Use the tabs above to explore different dashboards.</p>
+
     <div class="chart-container" id="chart-overview-school"></div>
+
+    <!-- AI PANEL FOR OVERVIEW -->
+    <div class="ai-panel" id="ai-panel-overview">
+        <h3>AI Interpretation (Local LLM)</h3>
+        <p id="llm-status">Model not loaded.</p>
+        <button id="btn-explain-overview">Explain School Trend</button>
+        <pre id="overview-ai-explanation"></pre>
+    </div>
 </div>
 
 <!------------------------- BY CLASS --------------------------->
@@ -206,6 +257,9 @@
 <script src="attendance.js"></script>
 <script src="trends.js"></script>
 <script src="main.js"></script>
+
+<!-- LLM INTEGRATION (runs locally via WebLLM) -->
+<script type="module" src="llm.js"></script>
 
 </body>
 </html>

@@ -14,43 +14,38 @@ const sections = {
     trends: document.getElementById("section-trends"),
 };
 
-// Global storage of all rows from ASSESSMENTS
+// Global storage
 let allRows = [];
 
-// ---------- UI helpers ----------
-
+// UI helper
 function log(msg) {
     console.log(msg);
     logEl.textContent += msg + "\n";
     logEl.scrollTop = logEl.scrollHeight;
 }
 
+// Navigation
 function showSection(sectionKey) {
-    // toggle sidebar active
     navButtons.forEach(btn => {
         btn.classList.toggle("active", btn.dataset.section === sectionKey);
     });
-    // toggle sections
     for (const [key, el] of Object.entries(sections)) {
         el.classList.toggle("active", key === sectionKey);
     }
 }
 
-// Navigation click handlers
 navButtons.forEach(btn => {
     btn.addEventListener("click", () => {
         const target = btn.dataset.section;
         showSection(target);
         log(`Switched to page: ${target}`);
-        // When user goes to "By Class", make sure chart matches current filters
         if (target === "by-class" && allRows.length > 0) {
             updateDashboardByClass();
         }
     });
 });
 
-// ---------- Data helpers ----------
-
+// Helpers
 function unique(arr) {
     return Array.from(new Set(arr)).filter(
         v => v !== null && v !== undefined && v !== ""
@@ -61,36 +56,30 @@ function getFilteredRowsByClass() {
     const term = termSelect.value;
     const subject = subjectSelect.value;
 
-    return allRows.filter(row => {
-        const okTerm = (term === "all") || (row.term === term);
-        const okSubject = (subject === "all") || (row.subject === subject);
-        return okTerm && okSubject;
-    });
+    return allRows.filter(row =>
+        (term === "all" || row.term === term) &&
+        (subject === "all" || row.subject === subject)
+    );
 }
 
 function computeClassAverages(rows) {
-    const groups = {}; // { className: { sum: ..., count: ... } }
-
+    const groups = {};
     for (const r of rows) {
-        const cls = r.class;
-        if (!cls) continue;
+        if (!r.class) continue;
+        if (!groups[r.class]) groups[r.class] = { sum: 0, count: 0 };
 
-        if (!groups[cls]) {
-            groups[cls] = { sum: 0, count: 0 };
-        }
-
-        // Prefer final_percent, otherwise final_5scale
         const val = Number(r.final_percent ?? r.final_5scale ?? NaN);
         if (!Number.isNaN(val)) {
-            groups[cls].sum += val;
-            groups[cls].count += 1;
+            groups[r.class].sum += val;
+            groups[r.class].count += 1;
         }
     }
-
-    return Object.entries(groups).map(([cls, { sum, count }]) => ({
-        class: cls,
-        avg: count > 0 ? sum / count : null
-    })).sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0));
+    return Object.entries(groups)
+        .map(([cls, { sum, count }]) => ({
+            class: cls,
+            avg: count ? sum / count : null
+        }))
+        .sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0));
 }
 
 function renderClassChart(summary) {
@@ -105,12 +94,9 @@ function renderClassChart(summary) {
         return;
     }
 
-    const x = summary.map(r => r.class);
-    const y = summary.map(r => r.avg);
-
     Plotly.newPlot(chartDiv, [{
-        x,
-        y,
+        x: summary.map(r => r.class),
+        y: summary.map(r => r.avg),
         type: "bar"
     }], {
         title: "Average final grade by class",
@@ -120,46 +106,37 @@ function renderClassChart(summary) {
 }
 
 function updateDashboardByClass() {
-    if (!allRows.length) {
-        log("No data loaded yet, cannot update By Class dashboard.");
-        return;
-    }
+    if (!allRows.length) return;
+
     const filtered = getFilteredRowsByClass();
     const summary = computeClassAverages(filtered);
     log(`By Class → filtered rows: ${filtered.length}, classes: ${summary.length}`);
+
     renderClassChart(summary);
 }
 
-// ---------- Event handlers ----------
-
-// Filters for By Class page
+// Filter listeners
 termSelect.addEventListener("change", updateDashboardByClass);
 subjectSelect.addEventListener("change", updateDashboardByClass);
 
 // Excel upload
 fileInput.addEventListener("change", async () => {
     log("Upload event fired.");
-
     const file = fileInput.files[0];
-    if (!file) {
-        log("No file selected.");
-        return;
-    }
+    if (!file) return;
 
     log("File selected: " + file.name);
 
-    // Read Excel
     const data = await file.arrayBuffer();
     const workbook = XLSX.read(data, { type: "array" });
 
     log("Sheets found: " + workbook.SheetNames.join(", "));
 
     if (!workbook.Sheets["ASSESSMENTS"]) {
-        log("❌ 'ASSESSMENTS' sheet not found in workbook.");
+        log("❌ 'ASSESSMENTS' sheet not found.");
         return;
     }
 
-    // Parse ASSESSMENTS
     const rawRows = XLSX.utils.sheet_to_json(
         workbook.Sheets["ASSESSMENTS"],
         { defval: null }
@@ -167,18 +144,18 @@ fileInput.addEventListener("change", async () => {
 
     log("Rows loaded from ASSESSMENTS: " + rawRows.length);
 
-    // Normalize / clean
+    // Normalize
     allRows = rawRows.map(r => ({
-        student_id: r.student_id ?? r["student_id"] ?? null,
-        student_name: r.student_name ?? r["student_name"] ?? null,
-        class: r.class ?? r["class"] ?? null,
-        subject: r.subject ?? r["subject"] ?? null,
-        term: r.term ?? r["term"] ?? null,
-        FA: r.FA !== undefined ? Number(r.FA) : null,
-        SAU: r.SAU !== undefined ? Number(r.SAU) : null,
-        SAT: r.SAT !== undefined ? Number(r.SAT) : null,
-        final_percent: r.final_percent !== undefined ? Number(r.final_percent) : null,
-        final_5scale: r.final_5scale !== undefined ? Number(r.final_5scale) : null
+        student_id: r.student_id,
+        student_name: r.student_name,
+        class: r.class,
+        subject: r.subject,
+        term: r.term,
+        FA: Number(r.FA ?? null),
+        SAU: Number(r.SAU ?? null),
+        SAT: Number(r.SAT ?? null),
+        final_percent: Number(r.final_percent ?? null),
+        final_5scale: Number(r.final_5scale ?? null)
     }));
 
     log("Rows normalized: " + allRows.length);
@@ -188,25 +165,22 @@ fileInput.addEventListener("change", async () => {
     const subjects = unique(allRows.map(r => r.subject));
 
     termSelect.innerHTML = '<option value="all">All terms</option>';
-    for (const t of terms) {
+    terms.forEach(t => {
         const opt = document.createElement("option");
-        opt.value = t;
-        opt.textContent = t;
+        opt.value = t; opt.textContent = t;
         termSelect.appendChild(opt);
-    }
+    });
 
     subjectSelect.innerHTML = '<option value="all">All subjects</option>';
-    for (const s of subjects) {
+    subjects.forEach(s => {
         const opt = document.createElement("option");
-        opt.value = s;
-        opt.textContent = s;
+        opt.value = s; opt.textContent = s;
         subjectSelect.appendChild(opt);
-    }
+    });
 
     log("Terms: " + terms.join(", "));
     log("Subjects: " + subjects.join(", "));
 
-    // If user is already on By Class page, update chart
     if (sections["by-class"].classList.contains("active")) {
         updateDashboardByClass();
     }
@@ -214,4 +188,4 @@ fileInput.addEventListener("change", async () => {
 
 // Initial state
 showSection("overview");
-log("App initialized. Please upload an Excel file.");
+log("App initialized. Upload an Excel file to start.");

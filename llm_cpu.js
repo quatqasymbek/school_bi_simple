@@ -76,35 +76,29 @@ function makePromptFromContext(ctx) {
     const jsonData = JSON.stringify(ctx, null, 2);
 
     return `
-You are an assistant for a School BI dashboard. You must analyze school-wide performance trends.
+You are an AI assistant for a School BI dashboard. Analyze the school-wide performance trend using ONLY the numbers in the data. Never repeat the data, never mention JSON, and never restate instructions.
 
-Follow these rules:
-- Use ONLY the numbers and terms from the data block.
-- Do NOT invent or guess any new numeric values.
-- Do NOT repeat or mention the words "RULES", "DATA", or any JSON.
-- Do NOT copy the data itself in your answer.
-- If a conclusion cannot be supported directly, say: "Not enough data to determine this."
-- Be concise and structured.
+Write the analysis directly in the template below. Do NOT add any new headings. Do NOT rewrite the template. Simply fill it out.
 
-Data:
+DATA:
 ${jsonData}
 
-Now write the analysis in plain English using EXACTLY this format:
+---BEGIN ANALYSIS TEMPLATE---
+1. Summary (2–3 sentences):
+The data shows
 
-1. Summary (2–3 sentences)
+2. Positive patterns:
+- 
 
-2. Positive patterns
-- ...
+3. Potential issues or risks:
+- 
 
-3. Potential issues or risks
-- ...
-
-4. Recommendations for the school (very concrete, 3–5 short items)
-- ...
-
-Write ONLY the analysis in this format. Do NOT explain the rules, do NOT show the data, and do NOT add any extra headings.
+4. Recommendations for the school (3–5 concrete items):
+- 
+---END ANALYSIS TEMPLATE---
 `.trim();
 }
+
 
 
 /* ============================================================

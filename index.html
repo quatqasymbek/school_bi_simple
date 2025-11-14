@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>School BI</title>
+</head>
+
+<body>
+    <h1>School BI System</h1>
+    <p>Upload your Excel file to continue:</p>
+
+    <input type="file" id="excelUpload" />
+
+    <div id="output"></div>
+
+    <!-- SheetJS -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx"></script>
+
+    <!-- Pyodide -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+
+    <!-- Main JS -->
+    <script type="module" src="app.js"></script>
+</body>
+</html>

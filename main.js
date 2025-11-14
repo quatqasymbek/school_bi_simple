@@ -1,159 +1,86 @@
 console.log("JS Loaded: main.js executing");
 
-// --------------------------
-// Utility logger
-// --------------------------
+const logBox = document.getElementById("log");
+const fileInput = document.getElementById("excelUpload");
+
 function log(msg) {
     console.log(msg);
-    const el = document.getElementById("log");
-    el.textContent += msg + "\n";
+    logBox.innerText += msg + "\n";
 }
 
-// Test Polars immediately after page load
-console.log("Polars UMD exists on load?", window.polars);
+// Load Pyodide
+log("Loading Pyodide...");
+let pyodideReady = loadPyodide();
 
-// --------------------------
-// 1. Initialize Pyodide (NO pandas)
-// --------------------------
-
-let pyodideReady = false;
-
-async function initPyodide() {
-    log("Loading Pyodide (without pandas)...");
-    try {
-        window.pyodide = await loadPyodide();
-        log("Pyodide loaded.");
-        pyodideReady = true;
-    } catch (err) {
-        log("❌ Pyodide load error: " + err);
-    }
-}
-
-initPyodide();
-
-// --------------------------
-// 2. Excel Upload Handler
-// --------------------------
-
-const uploadElement = document.getElementById("excelUpload");
-log("Upload element found.");
-
-uploadElement.addEventListener("change", async (e) => {
+fileInput.addEventListener("change", async () => {
     log("Upload event fired.");
 
-    const file = e.target.files[0];
-    if (!file) {
-        log("No file selected.");
-        return;
-    }
+    const file = fileInput.files[0];
+    if (!file) return;
 
     log("File selected: " + file.name);
 
-    // Read Excel as ArrayBuffer
+    // Read Excel via SheetJS
     const data = await file.arrayBuffer();
     const workbook = XLSX.read(data, { type: "array" });
 
-    log("Sheets found: " + workbook.SheetNames.join(", "));
+    const sheets = workbook.SheetNames;
+    log("Sheets found: " + sheets.join(", "));
 
-    if (!workbook.Sheets["ASSESSMENTS"]) {
-        log("❌ 'ASSESSMENTS' sheet missing.");
-        return;
+    // Only process ASSESSMENTS for now
+    const rawRows = XLSX.utils.sheet_to_json(
+        workbook.Sheets["ASSESSMENTS"],
+        { defval: null }
+    );
+
+    log("Rows loaded from ASSESSMENTS: " + rawRows.length);
+
+    // Data processing (JS only)
+    const jsCleaned = rawRows.map(r => ({
+        student_id: r.student_id,
+        student_name: r.student_name,
+        class: r.class,
+        subject: r.subject,
+        term: r.term,
+        FA: Number(r.FA ?? 0),
+        SAU: Number(r.SAU ?? 0),
+        SAT: Number(r.SAT ?? 0),
+        final_percent: Number(r.final_percent ?? 0),
+        final_5scale: Number(r.final_5scale ?? 0)
+    }));
+
+    // Group by class
+    const classGroups = {};
+    for (const row of jsCleaned) {
+        if (!classGroups[row.class]) classGroups[row.class] = [];
+        classGroups[row.class].push(row.final_percent);
     }
 
-    // Convert sheet to JS objects
-    let jsRows = XLSX.utils.sheet_to_json(workbook.Sheets["ASSESSMENTS"], {
-        defval: null,
-        raw: true
-    });
+    const summary = Object.entries(classGroups).map(([cls, arr]) => ({
+        class: cls,
+        avg: arr.reduce((a, b) => a + b, 0) / arr.length
+    }));
 
-    log("Rows loaded from ASSESSMENTS: " + jsRows.length);
+    log("Computed averages for " + summary.length + " classes");
 
-    // --------------------------
-    // Polars DataFrame
-    // --------------------------
-
-    const pl = window.polars;
-    if (!pl) {
-        log("❌ Polars not loaded yet. Check console and ensure polars.umd.js is reachable.");
-        return;
-    }
-
-    log("Polars detected. Creating DataFrame...");
-
-    let df;
-    try {
-        df = pl.DataFrame(jsRows);
-        log("Polars DataFrame created. Columns: " + df.columns.join(", "));
-    } catch (err) {
-        log("❌ Polars DataFrame error: " + err);
-        return;
-    }
-
-    // Determine grade column
-    let gradeCol = null;
-
-    if (df.columns.includes("final_5scale")) {
-        gradeCol = "final_5scale";
-        df = df.withColumn(pl.col("final_5scale").cast(pl.Float64));
-    } else if (df.columns.includes("final_grade")) {
-        gradeCol = "final_grade";
-        df = df.withColumn(pl.col("final_grade").cast(pl.Float64));
-    } else {
-        log("❌ No recognized grade column found.");
-        return;
-    }
-
-    // --------------------------
-    // Compute aggregation
-    // --------------------------
-
-    let grouped = df
-        .groupBy("class")
-        .agg(pl.col(gradeCol).mean().alias("avg_grade"))
-        .sort("avg_grade", false);
-
-    const records = grouped.toRecords();
-
-    log("Grouped sample:\n" + JSON.stringify(records.slice(0, 5), null, 2));
-
-    // --------------------------
-    // Plotly chart
-    // --------------------------
-
+    // Plot
     Plotly.newPlot("chart", [{
-        x: records.map(r => r.class),
-        y: records.map(r => r.avg_grade),
+        x: summary.map(r => r.class),
+        y: summary.map(r => r.avg),
         type: "bar"
     }], {
-        title: "Average Final Grade by Class",
-        xaxis: { title: "Class" },
-        yaxis: { title: "Average Grade (2–5)", range: [2, 5] }
+        title: "Average Final Grade by Class"
     });
 
-    log("Plotly chart rendered.");
+    // Python insight (optional)
+    let pyodide = await pyodideReady;
 
-    // --------------------------
-    // 3. Python insight via Pyodide
-    // --------------------------
+    pyodide.globals.set("summary", summary);
 
-    if (pyodideReady) {
-        try {
-            pyodide.globals.set("summary_js", records);
+    const pyResult = pyodide.runPython(`
+best = max(summary, key=lambda x: x["avg"])
+f"Best class: {best['class']} with avg {best['avg']:.1f}"
+    `);
 
-            const insight = pyodide.runPython(`
-summary = summary_js
-best = max(summary, key=lambda x: x["avg_grade"])
-worst = min(summary, key=lambda x: x["avg_grade"])
-f"Best class: {best['class']} ({best['avg_grade']:.2f}) | "
-f"Worst class: {worst['class']} ({worst['avg_grade']:.2f})"
-            `);
-
-            log("Python insight: " + insight);
-
-        } catch (err) {
-            log("❌ Pyodide Python error: " + err);
-        }
-    } else {
-        log("Pyodide not ready; skipping Python insight.");
-    }
+    log("Python insight: " + pyResult);
 });

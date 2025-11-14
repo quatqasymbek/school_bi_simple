@@ -96,8 +96,6 @@ function updateDashboard() {
     renderChart(summary);
 }
 
-// ---------- Event handlers ----------
-
 // When user changes term or subject
 termSelect.addEventListener("change", updateDashboard);
 subjectSelect.addEventListener("change", updateDashboard);
@@ -153,7 +151,6 @@ fileInput.addEventListener("change", async () => {
     const terms = unique(allRows.map(r => r.term));
     const subjects = unique(allRows.map(r => r.subject));
 
-    // Reset selects
     termSelect.innerHTML = '<option value="all">All terms</option>';
     for (const t of terms) {
         const opt = document.createElement("option");

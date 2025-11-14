@@ -1,9 +1,16 @@
+// llm_cpu.js — FINAL PATCHED VERSION
+// Local CPU-only LLM for School BI
+// Uses T5-Small (public, anonymous, WASM)
+// Ultra-stable "Anchor Template" output
+
 import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6";
 
+// UI handles
 const statusEl = document.getElementById("llm-status");
 const outputEl = document.getElementById("overview-ai-explanation");
 const explainBtn = document.getElementById("btn-explain-overview");
 
+// Status helper
 function setLLMStatus(msg) {
     console.log("[LLM]", msg);
     if (statusEl) statusEl.textContent = msg;
@@ -11,19 +18,20 @@ function setLLMStatus(msg) {
 
 let generatorPromise = null;
 
-/* Load SAFE PUBLIC MODEL */
+/* ============================================================
+   Load SAFE PUBLIC MODEL (NO 401 ERRORS)
+============================================================ */
 async function getGenerator() {
     if (!generatorPromise) {
         generatorPromise = (async () => {
             setLLMStatus("Downloading local AI model (one-time)…");
 
-            // SAFE, PUBLIC, AUTH-FREE MODEL
             const pipe = await pipeline(
                 "text2text-generation",
-                "Xenova/t5-small",    // <----- FIXED
+                "Xenova/t5-small",  // ✔ SAFE, PUBLIC, FAST
                 {
                     dtype: "q4",
-                    device: "wasm"
+                    device: "wasm"  // ✔ CPU-only
                 }
             );
 
@@ -34,10 +42,14 @@ async function getGenerator() {
     return generatorPromise;
 }
 
-/* BI context */
+/* ============================================================
+   Build BI Context for Overview Trend
+============================================================ */
 function buildOverviewTrendContext() {
     const SBI = window.SBI;
-    if (!SBI?.state?.allRows) throw new Error("No BI data loaded.");
+    if (!SBI?.state?.allRows) {
+        throw new Error("No BI data loaded. Upload Excel first.");
+    }
 
     const rows = SBI.state.allRows;
     const terms = SBI.state.allTerms;
@@ -56,42 +68,51 @@ function buildOverviewTrendContext() {
     return { trend };
 }
 
-/* T5-friendly prompt */
+/* ============================================================
+   Stable Anchor Template (small-model proof)
+============================================================ */
 function makePromptFromContext(ctx) {
-    const jsonData = JSON.stringify(ctx);
+    const json = JSON.stringify(ctx);
 
     return `
-Using the following data:
-${jsonData}
+Analyze the following school performance data and complete the report.
 
-Write the school trend analysis in this exact format:
+DATA:
+${json}
 
-1. Summary (2–3 sentences):
-[Write here]
+Write the analysis in this EXACT structure.
+Do NOT repeat the data.
+Do NOT add explanations of the rules.
+Do NOT include anything outside the required format.
 
-2. Positive patterns:
-- [Item 1]
-- [Item 2]
+### Summary:
+[2–3 sentences]
 
-3. Potential issues or risks:
-- [Risk 1]
-- [Risk 2]
+### Positive patterns:
+- 
 
-4. Recommendations for the school (3–5 items):
-- [Item 1]
-- [Item 2]
-- [Item 3]
+### Risks:
+- 
 
-Begin with "1. Summary".
+### Recommendations:
+- 
+- 
+- 
+
+Begin directly with "### Summary:".
 `.trim();
 }
 
-/* Generate explanation */
+/* ============================================================
+   Generate Explanation
+============================================================ */
 async function explainOverviewTrend() {
+    if (!outputEl) return;
+
     try {
         explainBtn.disabled = true;
-
         setLLMStatus("Preparing BI context…");
+
         const ctx = buildOverviewTrendContext();
         const prompt = makePromptFromContext(ctx);
 
@@ -100,35 +121,46 @@ async function explainOverviewTrend() {
         setLLMStatus("AI analyzing trend…");
 
         const result = await generator(prompt, {
-            max_new_tokens: 200,
-            temperature: 0.2
+            max_new_tokens: 250,
+            temperature: 0.1   // ✔ ultra-stable output
         });
 
         let text = result[0]?.generated_text || "";
 
-        // Clean: always start from "1. Summary"
-        const idx = text.indexOf("1. Summary");
-        if (idx > 0) text = text.slice(idx);
+        /* ========================================================
+           CLEANUP (remove echoes & placeholders)
+        ======================================================== */
 
-        text = text
-            .replace(/\[Write here\]/g, "")
-            .replace(/\[Item \d\]/g, "")
-            .replace(/\[Risk \d\]/g, "")
-            .trim();
+        // Ensure output always starts at Summary
+        const idx = text.indexOf("### Summary:");
+        if (idx !== -1) text = text.slice(idx);
+
+        // Remove placeholder markers like [2–3 sentences]
+        text = text.replace(/\[.*?\]/g, "");
+
+        // Remove echoed instructions
+        text = text.replace(/Begin.*/gi, "");
+
+        text = text.trim();
 
         outputEl.textContent = text;
         setLLMStatus("Explanation ready.");
 
     } catch (err) {
+        console.error(err);
         outputEl.textContent = "Error: " + err.message;
         setLLMStatus("AI error.");
-        console.error(err);
     } finally {
         explainBtn.disabled = false;
     }
 }
 
+/* ============================================================
+   Attach to Button
+============================================================ */
 if (explainBtn) {
     explainBtn.addEventListener("click", explainOverviewTrend);
     setLLMStatus("Local AI is idle. Upload data, then click the button.");
+} else {
+    console.warn("btn-explain-overview not found.");
 }

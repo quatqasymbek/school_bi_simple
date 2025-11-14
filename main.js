@@ -1,60 +1,21 @@
 // main.js
 console.log("JS Loaded: main.js executing");
 
-const logEl = document.getElementById("log");
 const fileInput = document.getElementById("excelUpload");
-const navButtons = document.querySelectorAll(".nav-btn");
 
-const sections = {
-    overview: document.getElementById("section-overview"),
-    "by-class": document.getElementById("section-by-class"),
-    "by-subject": document.getElementById("section-by-subject"),
-    "by-teacher": document.getElementById("section-by-teacher"),
-    attendance: document.getElementById("section-attendance"),
-    trends: document.getElementById("section-trends"),
-};
+SBI.setStatus("Please upload Excel file.");
 
-SBI.log = function (msg) {
-    console.log(msg);
-    if (!logEl) return;
-    logEl.textContent += msg + "\n";
-    logEl.scrollTop = logEl.scrollHeight;
-};
-
-// Navigation
-function showSection(sectionKey) {
-    navButtons.forEach(btn => {
-        btn.classList.toggle("active", btn.dataset.section === sectionKey);
-    });
-    for (const [key, el] of Object.entries(sections)) {
-        if (!el) continue;
-        el.classList.toggle("active", key === sectionKey);
-    }
-
-    // Trigger updates when switching pages
-    if (sectionKey === "by-class" && window.SBI_Class) SBI_Class.update();
-    if (sectionKey === "by-subject" && window.SBI_Subject) SBI_Subject.update();
-    if (sectionKey === "by-teacher" && window.SBI_Teacher) SBI_Teacher.update();
-}
-
-navButtons.forEach(btn => {
-    btn.addEventListener("click", () => {
-        const target = btn.dataset.section;
-        showSection(target);
-        SBI.log(`Switched to page: ${target}`);
-    });
-});
-
-// Excel upload & data loading
 fileInput.addEventListener("change", async () => {
     SBI.log("Upload event fired.");
     const file = fileInput.files[0];
     if (!file) {
         SBI.log("No file selected.");
+        SBI.setStatus("No file selected.");
         return;
     }
 
     SBI.log("File selected: " + file.name);
+    SBI.setStatus("Reading Excel file…");
 
     const data = await file.arrayBuffer();
     const workbook = XLSX.read(data, { type: "array" });
@@ -63,9 +24,10 @@ fileInput.addEventListener("change", async () => {
 
     const state = SBI.state;
 
-    // ========== ASSESSMENTS ==========
+    // ----------------- ASSESSMENTS -----------------
     if (!workbook.Sheets["ASSESSMENTS"]) {
         SBI.log("❌ 'ASSESSMENTS' sheet not found.");
+        SBI.setStatus("ASSESSMENTS sheet not found in Excel.");
         return;
     }
 
@@ -73,7 +35,6 @@ fileInput.addEventListener("change", async () => {
         workbook.Sheets["ASSESSMENTS"],
         { defval: null }
     );
-
     SBI.log("Rows loaded from ASSESSMENTS: " + rawRows.length);
 
     state.allRows = rawRows.map(r => ({
@@ -93,11 +54,13 @@ fileInput.addEventListener("change", async () => {
 
     state.allTerms = SBI.unique(state.allRows.map(r => r.term));
     state.allSubjects = SBI.unique(state.allRows.map(r => r.subject));
+    state.allClasses = SBI.unique(state.allRows.map(r => r.class));
 
     SBI.log("Terms: " + state.allTerms.join(", "));
     SBI.log("Subjects: " + state.allSubjects.join(", "));
+    SBI.log("Classes: " + state.allClasses.join(", "));
 
-    // ========== TEACHERS (optional) ==========
+    // ----------------- TEACHERS -----------------
     state.allTeachers = [];
     state.teacherAssignments = {};
 
@@ -134,16 +97,74 @@ fileInput.addEventListener("change", async () => {
         SBI.log("TEACHERS sheet not found (teacher dashboard limited).");
     }
 
-    // Notify dashboards
+    // ----------------- ATTENDANCE (optional) -----------------
+    state.attendanceRows = [];
+    state.attendanceTerms = [];
+    state.attendanceClasses = [];
+
+    if (workbook.Sheets["ATTENDANCE"]) {
+        const rawAtt = XLSX.utils.sheet_to_json(
+            workbook.Sheets["ATTENDANCE"],
+            { defval: null }
+        );
+        // Expecting columns: date, term, class, student_id, present OR absent
+        state.attendanceRows = rawAtt.map(r => ({
+            date: r.date,
+            term: r.term,
+            class: r.class,
+            student_id: r.student_id,
+            present: r.present !== undefined ? Number(r.present) : null,
+            absent: r.absent !== undefined ? Number(r.absent) : null
+        }));
+
+        state.attendanceTerms = SBI.unique(state.attendanceRows.map(r => r.term));
+        state.attendanceClasses = SBI.unique(state.attendanceRows.map(r => r.class));
+        SBI.log("Attendance rows loaded: " + state.attendanceRows.length);
+    } else {
+        SBI.log("ATTENDANCE sheet not found (attendance dashboard limited).");
+    }
+
+    SBI.setStatus("Data loaded successfully.");
+
+    // Notify each dashboard
+    if (window.SBI_Overview) SBI_Overview.onDataLoaded();
     if (window.SBI_Class) SBI_Class.onDataLoaded();
     if (window.SBI_Subject) SBI_Subject.onDataLoaded();
     if (window.SBI_Teacher) SBI_Teacher.onDataLoaded();
+    if (window.SBI_Attendance) SBI_Attendance.onDataLoaded();
+    if (window.SBI_Trends) SBI_Trends.onDataLoaded();
 });
 
-// Initialize dashboards & default view
-if (window.SBI_Class) SBI_Class.init();
-if (window.SBI_Subject) SBI_Subject.init();
-if (window.SBI_Teacher) SBI_Teacher.init();
+// Initialize dashboards and overview
+if (!window.SBI_Overview) {
+    // Simple overview dashboard inside trends.js or here
+    window.SBI_Overview = {
+        onDataLoaded: function () {
+            const state = SBI.state;
+            const el = document.getElementById("chart-overview-school");
+            if (!el || !state.allRows.length) return;
 
-showSection("overview");
+            const byTerm = SBI.groupBy(
+                state.allRows,
+                r => r.term,
+                r => Number(r.final_percent ?? r.final_5scale ?? NaN)
+            );
+
+            const terms = state.allTerms;
+            const avg = terms.map(t => SBI.mean(byTerm[t] || []));
+
+            Plotly.newPlot(el, [{
+                x: terms,
+                y: avg,
+                mode: "lines+markers"
+            }], {
+                title: "School-wide average grade by term",
+                xaxis: { title: "Term" },
+                yaxis: { title: "Average grade" }
+            });
+        }
+    };
+}
+
+SBI.setStatus("App initialized. Upload an Excel file to start.");
 SBI.log("App initialized. Upload an Excel file to start.");

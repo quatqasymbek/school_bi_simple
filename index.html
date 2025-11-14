@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>School BI</title>
+    <title>School BI System</title>
 </head>
 
 <body>
@@ -11,15 +11,18 @@
 
     <input type="file" id="excelUpload" />
 
-    <div id="output"></div>
+    <pre id="output" style="white-space: pre-wrap;"></pre>
 
-    <!-- SheetJS -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx"></script>
+    <!-- SheetJS (stable pinned version) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
     <!-- Pyodide -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
 
-    <!-- Main JS -->
-    <script type="module" src="app.js"></script>
+    <!-- Plotly (we will need it next) -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+    <!-- Main JS (no module type!!) -->
+    <script src="app.js?v=3"></script>
 </body>
 </html>

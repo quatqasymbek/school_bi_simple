@@ -1,10 +1,10 @@
 // llm_cpu.js
-// Local CPU-only LLM using Transformers.js + Qwen2-0.5B-Instruct (quantized)
-// Works even on old school computers (WASM backend, NO WebGPU required)
-// Produces stable analytical output for School BI
+// Local CPU-only LLM using Transformers.js + Qwen2-0.5B-Instruct
+// Works on old PCs (WASM backend, no GPU/WebGPU required)
 
 import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6";
 
+// UI handles
 const statusEl = document.getElementById("llm-status");
 const outputEl = document.getElementById("overview-ai-explanation");
 const explainBtn = document.getElementById("btn-explain-overview");
@@ -14,20 +14,20 @@ function setLLMStatus(msg) {
     if (statusEl) statusEl.textContent = msg;
 }
 
-// Cache model pipeline
+// Cache the model so it loads only once
 let generatorPromise = null;
 
 async function getGenerator() {
     if (!generatorPromise) {
         generatorPromise = (async () => {
-            setLLMStatus("Downloading Qwen2-0.5B model (one-time)…");
+            setLLMStatus("Downloading local AI model (one-time)…");
 
             const pipe = await pipeline(
                 "text-generation",
                 "Xenova/qwen2-0.5b-instruct",
                 {
-                    dtype: "q4", // Fastest quantization
-                    device: "wasm" // CPU-only, works everywhere
+                    dtype: "q4",      // fastest stable quantization
+                    device: "wasm"    // CPU-only, works everywhere
                 }
             );
 
@@ -39,10 +39,11 @@ async function getGenerator() {
 }
 
 /* ============================================================
-   Build BI context → pure deterministic JSON for the LLM
+   Build deterministic BI context from Overview → Terms
 ============================================================ */
 function buildOverviewTrendContext() {
     const SBI = window.SBI;
+
     if (!SBI?.state?.allRows?.length) {
         throw new Error("No BI data loaded. Upload Excel first.");
     }
@@ -65,74 +66,95 @@ function buildOverviewTrendContext() {
 }
 
 /* ============================================================
-   Ultra-stable template prompting (best for small LLMs)
+   Ultra-stable template (bullet-proof for small models)
 ============================================================ */
 function makePromptFromContext(ctx) {
     const jsonData = JSON.stringify(ctx, null, 2);
 
     return `
-You are an AI assistant for a School BI dashboard. Analyze school-wide performance using only the data provided.
+You are an AI assistant for a School BI dashboard. Write a short analytical summary using ONLY the data provided. 
 
-DO NOT repeat the data.
-DO NOT mention JSON.
-DO NOT restate instructions.
-DO NOT invent numbers.
-
-Write the analysis by completing the template below clearly and concisely.
+Do NOT mention the JSON.
+Do NOT repeat the data itself.
+Do NOT explain rules.
+Do NOT add any headings outside 1–4.
 
 DATA:
 ${jsonData}
 
----BEGIN ANALYSIS TEMPLATE---
+Write the analysis by filling in this exact template:
+
 1. Summary (2–3 sentences):
-The data shows that
+[Write here]
 
 2. Positive patterns:
-- 
+- [Item 1]
+- [Item 2]
 
 3. Potential issues or risks:
-- 
+- [Item 1]
+- [Item 2]
 
 4. Recommendations for the school (3–5 concrete items):
-- 
----END ANALYSIS TEMPLATE---
+- [Item 1]
+- [Item 2]
+- [Item 3]
+
+Begin directly with “1. Summary”.
 `.trim();
 }
 
 /* ============================================================
-   Main generation function
+   Generate explanation
 ============================================================ */
 async function explainOverviewTrend() {
     if (!outputEl) return;
 
     try {
         if (explainBtn) explainBtn.disabled = true;
-        setLLMStatus("Preparing BI context…");
 
+        setLLMStatus("Preparing BI context...");
         const ctx = buildOverviewTrendContext();
         const prompt = makePromptFromContext(ctx);
 
         const generator = await getGenerator();
 
         setLLMStatus("AI analyzing trend…");
-
         const result = await generator(prompt, {
             max_new_tokens: 280,
-            temperature: 0.25,     // stable and analytical
+            temperature: 0.25,       // low = stable + precise
             top_p: 0.9,
             repetition_penalty: 1.1
         });
 
-        const text = result[0]?.generated_text || "Model returned no output.";
+        let text = result[0]?.generated_text || "";
 
-        // Clean any leftover from prompt echo
-        const cleaned = text
-            .replace(prompt, "")
-            .replace("---BEGIN ANALYSIS TEMPLATE---", "")
-            .replace("---END ANALYSIS TEMPLATE---", "")
+        /* CLEAN THE OUTPUT -------------------------------------- */
+
+        // Remove everything before "1. Summary"
+        const startIndex = text.indexOf("1. Summary");
+        if (startIndex >= 0) {
+            text = text.slice(startIndex);
+        }
+
+        // Remove leftover placeholder markers
+        text = text
+            .replace(/\[Write here\]/g, "")
+            .replace(/\[Item 1\]/g, "")
+            .replace(/\[Item 2\]/g, "")
+            .replace(/\[Item 3\]/g, "")
+            .replace(/\[Item 4\]/g, "")
             .trim();
 
-        outputEl.textContent = cleaned;
+        // Optionally remove duplicated template blocks
+        const endIndex = text.lastIndexOf("Recommendations");
+        if (endIndex > 0) {
+            text = text.slice(0, endIndex + 200);
+        }
+
+        /* END CLEANING ------------------------------------------- */
+
+        outputEl.textContent = text;
         setLLMStatus("Explanation ready.");
 
     } catch (err) {
@@ -145,12 +167,11 @@ async function explainOverviewTrend() {
 }
 
 /* ============================================================
-   Button event
+   Attach button
 ============================================================ */
 if (explainBtn) {
     explainBtn.addEventListener("click", explainOverviewTrend);
     setLLMStatus("Local AI is idle. Upload data, then click the button.");
-}
-else {
+} else {
     console.warn("btn-explain-overview not found");
 }

@@ -2,9 +2,11 @@
 console.log("JS Loaded: main.js executing");
 
 const fileInput = document.getElementById("excelUpload");
-
 SBI.setStatus("Please upload Excel file.");
 
+/* ===========================================
+   MAIN FILE READER
+=========================================== */
 fileInput.addEventListener("change", async () => {
     SBI.log("Upload event fired.");
     const file = fileInput.files[0];
@@ -24,25 +26,27 @@ fileInput.addEventListener("change", async () => {
 
     const state = SBI.state;
 
-    // ----------------- ASSESSMENTS -----------------
+    /* ===========================================
+       ASSESSMENTS
+    ========================================== */
     if (!workbook.Sheets["ASSESSMENTS"]) {
-        SBI.log("❌ 'ASSESSMENTS' sheet not found.");
-        SBI.setStatus("ASSESSMENTS sheet not found in Excel.");
+        SBI.setStatus("❌ ASSESSMENTS sheet missing.");
         return;
     }
 
-    const rawRows = XLSX.utils.sheet_to_json(
+    const rawAssess = XLSX.utils.sheet_to_json(
         workbook.Sheets["ASSESSMENTS"],
         { defval: null }
     );
-    SBI.log("Rows loaded from ASSESSMENTS: " + rawRows.length);
 
-    state.allRows = rawRows.map(r => ({
+    SBI.log("Rows loaded from ASSESSMENTS: " + rawAssess.length);
+
+    state.allRows = rawAssess.map(r => ({
         student_id: r.student_id,
         student_name: r.student_name,
-        class: r.class,
-        subject: r.subject,
-        term: r.term,
+        class: String(r.class || "").trim(),
+        subject: String(r.subject || "").trim(),
+        term: String(r.term || "").trim(),
         FA: r.FA !== undefined ? Number(r.FA) : null,
         SAU: r.SAU !== undefined ? Number(r.SAU) : null,
         SAT: r.SAT !== undefined ? Number(r.SAT) : null,
@@ -50,17 +54,18 @@ fileInput.addEventListener("change", async () => {
         final_5scale: r.final_5scale !== undefined ? Number(r.final_5scale) : null
     }));
 
-    SBI.log("Rows normalized: " + state.allRows.length);
-
     state.allTerms = SBI.unique(state.allRows.map(r => r.term));
     state.allSubjects = SBI.unique(state.allRows.map(r => r.subject));
     state.allClasses = SBI.unique(state.allRows.map(r => r.class));
 
+    SBI.log("Rows normalized: " + state.allRows.length);
     SBI.log("Terms: " + state.allTerms.join(", "));
     SBI.log("Subjects: " + state.allSubjects.join(", "));
     SBI.log("Classes: " + state.allClasses.join(", "));
 
-    // ----------------- TEACHERS -----------------
+    /* ===========================================
+       TEACHERS (NEW LOGIC)
+    ========================================== */
     state.allTeachers = [];
     state.teacherAssignments = {};
 
@@ -70,34 +75,30 @@ fileInput.addEventListener("change", async () => {
             { defval: null }
         );
 
+        // Normalize teacher list
         state.allTeachers = rawTeachers.map(t => ({
-            teacher_id: t.teacher_id,
-            teacher_name: t.teacher_name,
-            subject: t.subject,
-            classes: t.classes
-                ? String(t.classes).split(",").map(s => s.trim())
-                : []
+            teacher_id: String(t.teacher_id || "").trim(),
+            teacher_name: String(t.teacher_name || "").trim(),
+            subject: String(t.subject || "").trim(),
+            category: t.category,
+            term: String(t.term || "").trim()
         }));
 
-        state.teacherAssignments = {};
-        state.allTeachers.forEach(t => {
-            if (!state.teacherAssignments[t.teacher_id]) {
-                state.teacherAssignments[t.teacher_id] = {
-                    name: t.teacher_name,
-                    subjects: new Set(),
-                    classes: new Set()
-                };
-            }
-            if (t.subject) state.teacherAssignments[t.teacher_id].subjects.add(t.subject);
-            t.classes.forEach(c => state.teacherAssignments[t.teacher_id].classes.add(c));
-        });
-
         SBI.log("Teachers loaded: " + state.allTeachers.length);
+
+        // Build mapping: teacher -> class based on ASSESSMENTS
+        if (window.buildTeacherAssignments) {
+            buildTeacherAssignments(state.allTeachers, state.allRows);
+        } else {
+            SBI.log("WARNING: buildTeacherAssignments() missing.");
+        }
     } else {
-        SBI.log("TEACHERS sheet not found (teacher dashboard limited).");
+        SBI.log("⚠️ TEACHERS sheet not found. Teacher dashboard limited.");
     }
 
-    // ----------------- ATTENDANCE (optional) -----------------
+    /* ===========================================
+       ATTENDANCE (FIXED)
+    ========================================== */
     state.attendanceRows = [];
     state.attendanceTerms = [];
     state.attendanceClasses = [];
@@ -107,26 +108,27 @@ fileInput.addEventListener("change", async () => {
             workbook.Sheets["ATTENDANCE"],
             { defval: null }
         );
-        // Expecting columns: date, term, class, student_id, present OR absent
+
+        // Normalize attendance
         state.attendanceRows = rawAtt.map(r => ({
-            date: r.date,
-            term: r.term,
-            class: r.class,
-            student_id: r.student_id,
-            present: r.present !== undefined ? Number(r.present) : null,
-            absent: r.absent !== undefined ? Number(r.absent) : null
+            term: String(r.term || "").trim(),
+            class: String(r.class || "").trim(),
+            abs_total: Number(r.abs_total ?? 0)
         }));
 
         state.attendanceTerms = SBI.unique(state.attendanceRows.map(r => r.term));
         state.attendanceClasses = SBI.unique(state.attendanceRows.map(r => r.class));
+
         SBI.log("Attendance rows loaded: " + state.attendanceRows.length);
     } else {
-        SBI.log("ATTENDANCE sheet not found (attendance dashboard limited).");
+        SBI.log("⚠️ ATTENDANCE sheet not found.");
     }
 
     SBI.setStatus("Data loaded successfully.");
 
-    // Notify each dashboard
+    /* ===========================================
+       Notify dashboards
+    ========================================== */
     if (window.SBI_Overview) SBI_Overview.onDataLoaded();
     if (window.SBI_Class) SBI_Class.onDataLoaded();
     if (window.SBI_Subject) SBI_Subject.onDataLoaded();
@@ -135,9 +137,10 @@ fileInput.addEventListener("change", async () => {
     if (window.SBI_Trends) SBI_Trends.onDataLoaded();
 });
 
-// Initialize dashboards and overview
+/* ===========================================
+   Overview mini-module (simple)
+=========================================== */
 if (!window.SBI_Overview) {
-    // Simple overview dashboard inside trends.js or here
     window.SBI_Overview = {
         onDataLoaded: function () {
             const state = SBI.state;
@@ -158,7 +161,7 @@ if (!window.SBI_Overview) {
                 y: avg,
                 mode: "lines+markers"
             }], {
-                title: "School-wide average grade by term",
+                title: "School-wide Average Grade by Term",
                 xaxis: { title: "Term" },
                 yaxis: { title: "Average grade" }
             });
@@ -166,5 +169,6 @@ if (!window.SBI_Overview) {
     };
 }
 
+/* Initialize */
 SBI.setStatus("App initialized. Upload an Excel file to start.");
 SBI.log("App initialized. Upload an Excel file to start.");

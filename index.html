@@ -17,19 +17,22 @@
     <h2>Dashboard: Average Final Grade by Class</h2>
     <div id="chart" style="width:100%; height:500px;"></div>
 
-    <!-- SheetJS (Excel reader) -->
+    <!-- SheetJS -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-    <!-- Pyodide (Python runtime WITHOUT pandas) -->
+    <!-- Pyodide -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
 
-    <!-- Polars (WASM DataFrame engine, UMD bundle for GitHub Pages) -->
-    <script src="https://unpkg.com/@polars/js@0.12.0/dist/polars.umd.js"></script>
+    <!-- Polars (UMD + explicit WASM location) -->
+    <script src="https://cdn.jsdelivr.net/npm/@polars/js@0.12.0/dist/polars.umd.min.js"></script>
+    <script>
+        window.POLARS_WASM_LOC = "https://cdn.jsdelivr.net/npm/@polars/wasm@0.12.0/polars_wasm_bg.wasm";
+    </script>
 
-    <!-- Plotly charts -->
+    <!-- Plotly -->
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 
     <!-- Main JS -->
-    <script src="main.js?v=200000002"></script>
+    <script src="main.js?v=300000003"></script>
 </body>
 </html>

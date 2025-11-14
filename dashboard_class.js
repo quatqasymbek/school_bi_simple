@@ -3,7 +3,7 @@ window.SBI_Class = (function () {
     const state = SBI.state;
 
     let termSelect, subjectSelect, classSelect;
-    let chartAvg, chartDist, chartTrend;
+    let chartAvg, chartDist, chartTrend, chartHeat;
 
     function init() {
         termSelect = document.getElementById("classTermSelect");
@@ -13,6 +13,7 @@ window.SBI_Class = (function () {
         chartAvg = document.getElementById("chart-class-avg");
         chartDist = document.getElementById("chart-class-dist");
         chartTrend = document.getElementById("chart-class-trend");
+        chartHeat = document.getElementById("chart-class-heatmap");
 
         if (termSelect) termSelect.addEventListener("change", update);
         if (subjectSelect) subjectSelect.addEventListener("change", update);
@@ -20,12 +21,12 @@ window.SBI_Class = (function () {
     }
 
     function populateFilters() {
-        const { allRows } = state;
-        if (!allRows.length) return;
+        const rows = state.allRows;
+        if (!rows.length) return;
 
-        const terms = SBI.unique(allRows.map(r => r.term));
-        const subjects = SBI.unique(allRows.map(r => r.subject));
-        const classes = SBI.unique(allRows.map(r => r.class));
+        const terms = state.allTerms;
+        const subjects = state.allSubjects;
+        const classes = state.allClasses;
 
         if (termSelect) {
             termSelect.innerHTML = '<option value="all">All terms</option>';
@@ -55,43 +56,38 @@ window.SBI_Class = (function () {
         }
     }
 
-    function filteredRowsForRanking() {
-        const { allRows } = state;
-        if (!allRows.length) return [];
-
+    function filteredForRanking() {
+        const rows = state.allRows;
         const term = termSelect?.value || "all";
         const subj = subjectSelect?.value || "all";
 
-        return allRows.filter(r =>
+        return rows.filter(r =>
             (term === "all" || r.term === term) &&
             (subj === "all" || r.subject === subj)
         );
     }
 
     function computeClassStats(rows) {
-        const groups = {}; // class -> { vals: [] }
-        rows.forEach(r => {
-            if (!r.class) return;
-            const val = Number(r.final_percent ?? r.final_5scale ?? NaN);
-            if (Number.isNaN(val)) return;
-
-            if (!groups[r.class]) groups[r.class] = [];
-            groups[r.class].push(val);
-        });
+        const groups = SBI.groupBy(
+            rows,
+            r => r.class,
+            r => Number(r.final_percent ?? r.final_5scale ?? NaN)
+        );
 
         return Object.entries(groups).map(([cls, vals]) => ({
             class: cls,
             avg: SBI.mean(vals),
             std: SBI.std(vals),
             n: vals.length
-        })).sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0));
+        })).sort((a,b)=>(b.avg ?? 0)-(a.avg ?? 0));
     }
 
     function renderRanking(stats) {
         if (!chartAvg) return;
+
         if (!stats.length) {
             Plotly.newPlot(chartAvg, [], {
-                title: "No data",
+                title: "No data for class ranking",
                 xaxis: { title: "Class" },
                 yaxis: { title: "Average grade" }
             });
@@ -110,13 +106,13 @@ window.SBI_Class = (function () {
         });
     }
 
-    function filteredRowsForSelectedClass() {
-        const { allRows } = state;
+    function filteredForSelectedClass() {
+        const rows = state.allRows;
         const term = termSelect?.value || "all";
         const subj = subjectSelect?.value || "all";
         const cls = classSelect?.value || "all";
 
-        return allRows.filter(r =>
+        return rows.filter(r =>
             (term === "all" || r.term === term) &&
             (subj === "all" || r.subject === subj) &&
             (cls === "all" || r.class === cls)
@@ -126,12 +122,13 @@ window.SBI_Class = (function () {
     function renderDistribution(rows) {
         if (!chartDist) return;
 
-        const vals = rows.map(r => Number(r.final_percent ?? r.final_5scale ?? NaN))
+        const vals = rows
+            .map(r => Number(r.final_percent ?? r.final_5scale ?? NaN))
             .filter(v => !Number.isNaN(v));
 
         if (!vals.length) {
             Plotly.newPlot(chartDist, [], {
-                title: "No data for selected class",
+                title: "No data for grade distribution",
                 xaxis: { title: "Grade" },
                 yaxis: { title: "Number of students" }
             });
@@ -142,33 +139,32 @@ window.SBI_Class = (function () {
             x: vals,
             type: "histogram"
         }], {
-            title: "Grade distribution in selected class",
+            title: "Grade distribution in selected filter",
             xaxis: { title: "Grade" },
             yaxis: { title: "Students" }
         });
     }
 
     function computeClassTrend(cls) {
-        const { allRows, allTerms } = state;
+        const rows = state.allRows;
+        const terms = state.allTerms;
         if (!cls || cls === "all") return [];
 
-        const byTerm = {};
-        allRows.forEach(r => {
-            if (r.class !== cls) return;
-            const val = Number(r.final_percent ?? r.final_5scale ?? NaN);
-            if (Number.isNaN(val)) return;
-            if (!byTerm[r.term]) byTerm[r.term] = [];
-            byTerm[r.term].push(val);
-        });
+        const grouped = SBI.groupBy(
+            rows.filter(r => r.class === cls),
+            r => r.term,
+            r => Number(r.final_percent ?? r.final_5scale ?? NaN)
+        );
 
-        return allTerms.map(t => ({
+        return terms.map(t => ({
             term: t,
-            avg: byTerm[t] ? SBI.mean(byTerm[t]) : null
+            avg: SBI.mean(grouped[t] || [])
         }));
     }
 
     function renderTrend(cls) {
         if (!chartTrend) return;
+
         if (!cls || cls === "all") {
             Plotly.newPlot(chartTrend, [], {
                 title: "Select a class to see its trend",
@@ -180,6 +176,7 @@ window.SBI_Class = (function () {
 
         const trend = computeClassTrend(cls);
         const valid = trend.filter(p => p.avg !== null);
+
         if (!valid.length) {
             Plotly.newPlot(chartTrend, [], {
                 title: "No trend data for this class",
@@ -200,18 +197,49 @@ window.SBI_Class = (function () {
         });
     }
 
+    function renderHeatmap() {
+        if (!chartHeat) return;
+        const rows = state.allRows;
+        const terms = state.allTerms;
+        const classes = state.allClasses;
+
+        const matrix = classes.map(cls => {
+            return terms.map(term => {
+                const vals = rows
+                    .filter(r => r.class === cls && r.term === term)
+                    .map(r => Number(r.final_percent ?? r.final_5scale ?? NaN))
+                    .filter(v => !Number.isNaN(v));
+                return SBI.mean(vals);
+            });
+        });
+
+        Plotly.newPlot(chartHeat, [{
+            z: matrix,
+            x: terms,
+            y: classes,
+            type: "heatmap",
+            colorscale: "Viridis"
+        }], {
+            title: "Class × Term heatmap (average grade)",
+            xaxis: { title: "Term" },
+            yaxis: { title: "Class" }
+        });
+    }
+
     function update() {
-        const rankingRows = filteredRowsForRanking();
+        const rankingRows = filteredForRanking();
         const stats = computeClassStats(rankingRows);
-        SBI.log && SBI.log(`By Class → ranking rows: ${rankingRows.length}, classes: ${stats.length}`);
+        SBI.log(`By Class → ranking rows: ${rankingRows.length}, classes: ${stats.length}`);
         renderRanking(stats);
 
-        const clsRows = filteredRowsForSelectedClass();
-        SBI.log && SBI.log(`By Class → selected class rows: ${clsRows.length}`);
+        const clsRows = filteredForSelectedClass();
+        SBI.log(`By Class → selected filter rows: ${clsRows.length}`);
         renderDistribution(clsRows);
 
         const selectedClass = classSelect?.value || "all";
         renderTrend(selectedClass);
+
+        renderHeatmap();
     }
 
     function onDataLoaded() {
@@ -225,3 +253,5 @@ window.SBI_Class = (function () {
         update
     };
 })();
+
+SBI_Class.init();

@@ -41,15 +41,16 @@ window.SBI_Teacher = (function () {
     }
 
     function getFilteredRows() {
-        const { allRows, teacherAssignments } = state;
+        const rows = state.allRows;
         const teacherID = teacherSelect?.value || "all";
         const subj = subjectSelect?.value || "all";
+        const assignments = state.teacherAssignments;
 
-        return allRows.filter(r => {
+        return rows.filter(r => {
             if (subj !== "all" && r.subject !== subj) return false;
             if (teacherID === "all") return true;
 
-            const ta = teacherAssignments[teacherID];
+            const ta = assignments[teacherID];
             if (!ta) return false;
             if (!ta.classes.has(r.class)) return false;
             if (!ta.subjects.has(r.subject)) return false;
@@ -59,11 +60,11 @@ window.SBI_Teacher = (function () {
     }
 
     function computePerformance(rows) {
-        const { teacherAssignments } = state;
+        const assignments = state.teacherAssignments;
         const agg = {}; // teacher_id -> [grades]
 
         rows.forEach(r => {
-            for (const [id, ta] of Object.entries(teacherAssignments)) {
+            for (const [id, ta] of Object.entries(assignments)) {
                 if (!ta.classes.has(r.class)) continue;
                 if (!ta.subjects.has(r.subject)) continue;
 
@@ -77,7 +78,7 @@ window.SBI_Teacher = (function () {
 
         return Object.entries(agg).map(([id, vals]) => ({
             teacher_id: id,
-            teacher_name: teacherAssignments[id].name,
+            teacher_name: assignments[id].name,
             avg: SBI.mean(vals),
             n: vals.length
         })).sort((a,b)=>(b.avg ?? 0)-(a.avg ?? 0));
@@ -99,18 +100,18 @@ window.SBI_Teacher = (function () {
             text: perf.map(p => `N=${p.n}`),
             type: "bar"
         }], {
-            title: "Teacher Performance (average grade)",
+            title: "Teacher performance (average grade)",
             xaxis: { title: "Teacher", automargin: true },
             yaxis: { title: "Average grade" }
         });
     }
 
     function computeTeacherSubjectStats(rows, teacherID) {
-        const { teacherAssignments } = state;
+        const assignments = state.teacherAssignments;
         const agg = {}; // subject -> [grades]
 
         rows.forEach(r => {
-            const ta = teacherAssignments[teacherID];
+            const ta = assignments[teacherID];
             if (!ta) return;
             if (!ta.classes.has(r.class)) return;
             if (!ta.subjects.has(r.subject)) return;
@@ -156,24 +157,23 @@ window.SBI_Teacher = (function () {
     }
 
     function computeTeacherTrend(rows, teacherID) {
-        const { teacherAssignments, allTerms } = state;
-        const ta = teacherAssignments[teacherID];
+        const assignments = state.teacherAssignments;
+        const ta = assignments[teacherID];
         if (!ta) return [];
 
-        const byTerm = {};
-        rows.forEach(r => {
-            if (!ta.classes.has(r.class)) return;
-            if (!ta.subjects.has(r.subject)) return;
-            const val = Number(r.final_percent ?? r.final_5scale ?? NaN);
-            if (Number.isNaN(val)) return;
+        const terms = state.allTerms;
+        const byTerm = SBI.groupBy(
+            rows.filter(r =>
+                ta.classes.has(r.class) &&
+                ta.subjects.has(r.subject)
+            ),
+            r => r.term,
+            r => Number(r.final_percent ?? r.final_5scale ?? NaN)
+        );
 
-            if (!byTerm[r.term]) byTerm[r.term] = [];
-            byTerm[r.term].push(val);
-        });
-
-        return allTerms.map(t => ({
+        return terms.map(t => ({
             term: t,
-            avg: byTerm[t] ? SBI.mean(byTerm[t]) : null
+            avg: SBI.mean(byTerm[t] || [])
         }));
     }
 
@@ -203,7 +203,7 @@ window.SBI_Teacher = (function () {
 
     function update() {
         const rows = getFilteredRows();
-        SBI.log && SBI.log(`By Teacher → filtered rows: ${rows.length}`);
+        SBI.log(`By Teacher → filtered rows: ${rows.length}`);
 
         const perf = computePerformance(rows);
         renderPerformance(perf);
@@ -234,3 +234,5 @@ window.SBI_Teacher = (function () {
         update
     };
 })();
+
+SBI_Teacher.init();

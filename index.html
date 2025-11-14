@@ -4,7 +4,10 @@
     <meta charset="UTF-8" />
     <title>School BI Dashboard</title>
 
+    <!-- Plotly -->
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <!-- SheetJS (must come BEFORE main.js) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
     <style>
         body {
@@ -83,12 +86,14 @@
 <body>
 <header>School BI Dashboard</header>
 
+<!-- ------------------ UPLOAD AREA ------------------- -->
 <div id="upload-area">
     <p><b>Upload Excel file:</b></p>
     <input type="file" id="excelUpload" />
     <p id="status"></p>
 </div>
 
+<!-- ------------------ NAV BAR ------------------- -->
 <nav>
     <button onclick="switchPage('overview')">Overview</button>
     <button onclick="switchPage('by-class')">By Class</button>
@@ -98,13 +103,13 @@
     <button onclick="switchPage('trends')">Trends</button>
 </nav>
 
-<!------------------------- OVERVIEW --------------------------->
+<!-- ------------------ OVERVIEW ------------------- -->
 <div id="overview" class="page active">
     <h2>Overview</h2>
     <p>Upload data to view insights.</p>
 </div>
 
-<!------------------------- BY CLASS --------------------------->
+<!-- ------------------ BY CLASS ------------------- -->
 <div id="by-class" class="page">
 
     <h2>Performance by Class</h2>
@@ -125,7 +130,7 @@
     <div class="chart-container" id="chart-class-trend"></div>
 </div>
 
-<!------------------------- BY SUBJECT --------------------------->
+<!-- ------------------ BY SUBJECT ------------------- -->
 <div id="by-subject" class="page">
 
     <h2>Performance by Subject</h2>
@@ -143,7 +148,7 @@
     <div class="chart-container" id="chart-subject-trend"></div>
 </div>
 
-<!------------------------- BY TEACHER --------------------------->
+<!-- ------------------ BY TEACHER ------------------- -->
 <div id="by-teacher" class="page">
 
     <h2>Performance by Teacher</h2>
@@ -161,7 +166,7 @@
     <div class="chart-container" id="chart-teacher-trend"></div>
 </div>
 
-<!------------------------- ATTENDANCE --------------------------->
+<!-- ------------------ ATTENDANCE ------------------- -->
 <div id="attendance" class="page">
     <h2>Attendance</h2>
     <div class="chart-container" id="chart-attendance-total"></div>
@@ -169,7 +174,7 @@
     <div class="chart-container" id="chart-attendance-trend"></div>
 </div>
 
-<!------------------------- TRENDS --------------------------->
+<!-- ------------------ TRENDS ------------------- -->
 <div id="trends" class="page">
     <h2>Longitudinal Trends</h2>
     <div class="chart-container" id="chart-trend-class"></div>
@@ -177,6 +182,7 @@
     <div class="chart-container" id="chart-trend-school"></div>
 </div>
 
+<!-- ------------------ JS MODULES ------------------- -->
 <script src="utils.js"></script>
 <script src="dashboard_class.js"></script>
 <script src="dashboard_subject.js"></script>

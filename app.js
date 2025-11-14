@@ -37,13 +37,11 @@ uploadElement.addEventListener("change", async (e) => {
 
     console.log("File selected:", file.name);
 
-    // Read Excel
     const data = await file.arrayBuffer();
     const workbook = XLSX.read(data, { type: "array" });
 
     console.log("Sheets found:", workbook.SheetNames);
 
-    // Check for required sheet
     if (!workbook.Sheets["ASSESSMENTS"]) {
         document.getElementById("output").innerText =
             "ERROR: Sheet 'ASSESSMENTS' missing.\nSheets:\n" +
@@ -51,36 +49,30 @@ uploadElement.addEventListener("change", async (e) => {
         return;
     }
 
-    // Convert Excel → JSON
     let sheetRaw = XLSX.utils.sheet_to_json(workbook.Sheets["ASSESSMENTS"], {
-        defval: null,  // Replace undefined with null
+        defval: null,
         raw: true
     });
 
     console.log("Rows loaded:", sheetRaw.length);
 
-    // CLEAN THE DATA (important for pandas in Pyodide)
+    // FORCE ALL VALUES TO STRINGS (pandas-safe)
     let cleaned = sheetRaw.map(row => {
         const cleanedRow = {};
         for (const key in row) {
             let val = row[key];
 
-            // Replace undefined with null
-            if (val === undefined) val = null;
-
-            // Convert nested objects/arrays to strings
-            if (typeof val === "object" && val !== null) {
-                val = JSON.stringify(val);
+            if (val === undefined || val === null) {
+                cleanedRow[key] = null;
+            } else {
+                cleanedRow[key] = String(val);
             }
-
-            cleanedRow[key] = val;
         }
         return cleanedRow;
     });
 
     console.log("Cleaned rows:", cleaned.length);
 
-    // Check Pyodide state
     if (!pyodideReady) {
         document.getElementById("output").innerText =
             "ERROR: Pyodide not ready yet.";
@@ -88,23 +80,26 @@ uploadElement.addEventListener("change", async (e) => {
     }
 
     try {
-        // Pass cleaned JSON → Pyodide
         pyodide.globals.set("assess_js", cleaned);
 
-        // Convert to pandas DataFrame
         const result = pyodide.runPython(`
 import pandas as pd
+
+# Load DF with all strings
 df = pd.DataFrame(assess_js)
+
+# Convert numeric columns back where needed
+for col in ["FA", "SAU", "SAT", "final_percent", "final_5scale"]:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
+
 df.head().to_string()
         `);
 
         console.log("Python result:", result);
-
         document.getElementById("output").innerText = result;
 
     } catch (err) {
         console.error("❌ Python error:", err);
-        document.getElementById("output").innerText =
-            "Python error:\n" + err;
+        document.getElementById("output").innerText = "Python error:\n" + err;
     }
 });

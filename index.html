@@ -1,247 +1,187 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>School BI System (JS-only)</title>
+    <meta charset="UTF-8" />
+    <title>School BI Dashboard</title>
+
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+
     <style>
         body {
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-family: Arial, sans-serif;
             margin: 0;
             padding: 0;
+            background: #f6f6f6;
         }
+
         header {
-            background: #1f2933;
+            background: #2b4c7e;
             color: white;
-            padding: 12px 20px;
+            padding: 20px;
+            font-size: 24px;
+            font-weight: bold;
         }
-        .app-title {
-            margin: 0;
-            font-size: 20px;
-        }
-        .top-bar {
-            padding: 10px 20px;
-            border-bottom: 1px solid #e0e0e0;
-        }
-        .layout {
+
+        nav {
             display: flex;
-            height: calc(100vh - 100px);
+            background: #1f3558;
         }
-        .sidebar {
-            width: 220px;
-            border-right: 1px solid #e0e0e0;
-            padding: 10px;
-            box-sizing: border-box;
-        }
-        .sidebar h3 {
-            margin-top: 0;
+
+        nav button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            background: #1f3558;
+            color: white;
+            cursor: pointer;
             font-size: 16px;
         }
-        .nav-btn {
-            width: 100%;
-            text-align: left;
-            padding: 8px 10px;
-            margin-bottom: 4px;
-            border: none;
-            background: #f5f5f5;
-            cursor: pointer;
-            border-radius: 4px;
-            font-size: 14px;
+
+        nav button:hover {
+            background: #2b4c7e;
         }
-        .nav-btn.active {
-            background: #2563eb;
-            color: white;
-        }
-        .nav-btn:hover {
-            background: #e5e5e5;
-        }
-        .content {
-            flex: 1;
-            padding: 15px 20px;
-            box-sizing: border-box;
-            overflow: auto;
-        }
-        .section {
+
+        .page {
             display: none;
+            padding: 20px;
         }
-        .section.active {
-            display: block;
+
+        .active {
+            display: block !important;
         }
-        #log {
-            white-space: pre-wrap;
-            background: #f5f5f5;
-            padding: 10px;
-            border: 1px solid #ddd;
-            font-size: 12px;
-            max-height: 150px;
-            overflow-y: auto;
-        }
-        .filters-row {
-            margin-bottom: 10px;
-        }
-        .filters-row label {
-            margin-right: 15px;
-        }
-        #chart-class,
-        #chart-subject-class,
-        #chart-subject-dist,
-        #chart-subject-trend {
-            width: 100%;
-            height: 400px;
+
+        .filters {
             margin-bottom: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .filters label {
+            margin-right: 10px;
+            font-weight: bold;
+        }
+
+        .filters select {
+            margin-right: 20px;
+            padding: 5px;
+        }
+
+        .chart-container {
+            margin-top: 30px;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        #upload-area {
+            padding: 20px;
         }
     </style>
 </head>
 
 <body>
-    <header>
-        <h1 class="app-title">School BI System (JS-only)</h1>
-    </header>
+<header>School BI Dashboard</header>
 
-    <div class="top-bar">
-        <span>1️⃣ Upload Excel template: </span>
-        <input type="file" id="excelUpload" />
+<div id="upload-area">
+    <p><b>Upload Excel file:</b></p>
+    <input type="file" id="excelUpload" />
+    <p id="status"></p>
+</div>
+
+<nav>
+    <button onclick="switchPage('overview')">Overview</button>
+    <button onclick="switchPage('by-class')">By Class</button>
+    <button onclick="switchPage('by-subject')">By Subject</button>
+    <button onclick="switchPage('by-teacher')">By Teacher</button>
+    <button onclick="switchPage('attendance')">Attendance</button>
+    <button onclick="switchPage('trends')">Trends</button>
+</nav>
+
+<!------------------------- OVERVIEW --------------------------->
+<div id="overview" class="page active">
+    <h2>Overview</h2>
+    <p>Upload data to view insights.</p>
+</div>
+
+<!------------------------- BY CLASS --------------------------->
+<div id="by-class" class="page">
+
+    <h2>Performance by Class</h2>
+
+    <div class="filters">
+        <label>Term:</label>
+        <select id="classTermSelect"></select>
+
+        <label>Subject:</label>
+        <select id="classSubjectSelect"></select>
+
+        <label>Class:</label>
+        <select id="classClassSelect"></select>
     </div>
 
-    <div class="layout">
-        <aside class="sidebar">
-            <h3>Pages</h3>
-            <button class="nav-btn active" data-section="overview">Overview</button>
-            <button class="nav-btn" data-section="by-class">By Class</button>
-            <button class="nav-btn" data-section="by-subject">By Subject</button>
-            <button class="nav-btn" data-section="by-teacher">By Teacher</button>
-            <button class="nav-btn" data-section="attendance">Attendance</button>
-            <button class="nav-btn" data-section="trends">Trends</button>
-        </aside>
+    <div class="chart-container" id="chart-class-avg"></div>
+    <div class="chart-container" id="chart-class-dist"></div>
+    <div class="chart-container" id="chart-class-trend"></div>
+</div>
 
-        <main class="content">
-            <!-- Overview section -->
-            <section id="section-overview" class="section active">
-                <h2>Overview</h2>
-                <p>
-                    Upload your Excel file with the <strong>ASSESSMENTS</strong> sheet to see analytics
-                    by class, subject, teacher, attendance and trends over terms.
-                </p>
-                <p>
-                    This page will later show key summary indicators (average grade, number of classes,
-                    number of students, etc.). For now, open <strong>“By Class”</strong> or
-                    <strong>“By Subject”</strong> to see dashboards.
-                </p>
-            </section>
+<!------------------------- BY SUBJECT --------------------------->
+<div id="by-subject" class="page">
 
-            <!-- By Class section -->
-            <section id="section-by-class" class="section">
-                <h2>By Class</h2>
+    <h2>Performance by Subject</h2>
 
-                <div class="filters-row">
-                    <label>
-                        Term:
-                        <select id="termSelect">
-                            <option value="all">All terms</option>
-                        </select>
-                    </label>
+    <div class="filters">
+        <label>Subject:</label>
+        <select id="subjectSubjectSelect"></select>
 
-                    <label>
-                        Subject:
-                        <select id="subjectSelect">
-                            <option value="all">All subjects</option>
-                        </select>
-                    </label>
-                </div>
-
-                <div id="chart-class"></div>
-            </section>
-
-            <!-- By Subject section -->
-            <section id="section-by-subject" class="section">
-                <h2>By Subject</h2>
-
-                <div class="filters-row">
-                    <label>
-                        Subject:
-                        <select id="subjectSelectSubject">
-                            <option value="all">All subjects</option>
-                        </select>
-                    </label>
-
-                    <label>
-                        Term:
-                        <select id="termSelectSubject">
-                            <option value="all">All terms</option>
-                        </select>
-                    </label>
-                </div>
-
-                <h3>Average grade by class (for selected subject)</h3>
-                <div id="chart-subject-class"></div>
-
-                <h3>Grade distribution (students, selected subject)</h3>
-                <div id="chart-subject-dist"></div>
-
-                <h3>Trend across terms (average by term, selected subject)</h3>
-                <div id="chart-subject-trend"></div>
-            </section>
-            <!-- By Teacher section -->
-            <section id="section-by-teacher" class="section">
-                <h2>By Teacher</h2>
-            
-                <div class="filters-row">
-                    <label>
-                        Teacher:
-                        <select id="teacherSelect">
-                            <option value="all">All teachers</option>
-                        </select>
-                    </label>
-            
-                    <label>
-                        Subject:
-                        <select id="teacherSubjectSelect">
-                            <option value="all">All subjects</option>
-                        </select>
-                    </label>
-                </div>
-            
-                <h3>Teacher Performance (Average Grade)</h3>
-                <div id="chart-teacher-performance"></div>
-            
-                <h3>Teacher’s Subjects — Load & Performance</h3>
-                <div id="chart-teacher-subjects"></div>
-            
-                <h3>Teacher Trend Across Terms</h3>
-                <div id="chart-teacher-trend"></div>
-            </section>
-                        
-            <!-- Stubs for future pages -->
-            <section id="section-by-teacher" class="section">
-                <h2>By Teacher</h2>
-                <p>Coming soon...</p>
-            </section>
-
-            <section id="section-attendance" class="section">
-                <h2>Attendance</h2>
-                <p>Coming soon...</p>
-            </section>
-
-            <section id="section-trends" class="section">
-                <h2>Trends</h2>
-                <p>Coming soon...</p>
-            </section>
-
-            <h3>System log</h3>
-            <pre id="log"></pre>
-        </main>
+        <label>Term:</label>
+        <select id="subjectTermSelect"></select>
     </div>
 
-    <!-- SheetJS -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <div class="chart-container" id="chart-subject-class"></div>
+    <div class="chart-container" id="chart-subject-dist"></div>
+    <div class="chart-container" id="chart-subject-trend"></div>
+</div>
 
-    <!-- Plotly -->
-    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<!------------------------- BY TEACHER --------------------------->
+<div id="by-teacher" class="page">
 
-    <!-- School BI scripts (order matters) -->
-    <script src="utils.js?v=1"></script>
-    <script src="dashboard_class.js?v=1"></script>
-    <script src="dashboard_subject.js?v=1"></script>
-    <script src="dashboard_teacher.js?v=1"></script>
-    <script src="main.js?v=1"></script>
+    <h2>Performance by Teacher</h2>
+
+    <div class="filters">
+        <label>Teacher:</label>
+        <select id="teacherSelect"></select>
+
+        <label>Subject:</label>
+        <select id="teacherSubjectSelect"></select>
+    </div>
+
+    <div class="chart-container" id="chart-teacher-performance"></div>
+    <div class="chart-container" id="chart-teacher-subjects"></div>
+    <div class="chart-container" id="chart-teacher-trend"></div>
+</div>
+
+<!------------------------- ATTENDANCE --------------------------->
+<div id="attendance" class="page">
+    <h2>Attendance</h2>
+    <div class="chart-container" id="chart-attendance-total"></div>
+    <div class="chart-container" id="chart-attendance-class"></div>
+    <div class="chart-container" id="chart-attendance-trend"></div>
+</div>
+
+<!------------------------- TRENDS --------------------------->
+<div id="trends" class="page">
+    <h2>Longitudinal Trends</h2>
+    <div class="chart-container" id="chart-trend-class"></div>
+    <div class="chart-container" id="chart-trend-subject"></div>
+    <div class="chart-container" id="chart-trend-school"></div>
+</div>
+
+<script src="utils.js"></script>
+<script src="dashboard_class.js"></script>
+<script src="dashboard_subject.js"></script>
+<script src="dashboard_teacher.js"></script>
+<script src="main.js"></script>
+
 </body>
 </html>

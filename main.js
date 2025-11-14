@@ -1,7 +1,7 @@
 console.log("JS Loaded: main.js executing");
 
 // --------------------------
-// Utility: simple logger
+// Utility logger
 // --------------------------
 function log(msg) {
     console.log(msg);
@@ -9,8 +9,11 @@ function log(msg) {
     el.textContent += msg + "\n";
 }
 
+// Test Polars immediately after page load
+console.log("Polars UMD exists on load?", window.polars);
+
 // --------------------------
-// 1. Initialize Pyodide (NO pandas!)
+// 1. Initialize Pyodide (NO pandas)
 // --------------------------
 
 let pyodideReady = false;
@@ -29,7 +32,7 @@ async function initPyodide() {
 initPyodide();
 
 // --------------------------
-// 2. Excel upload + Polars processing
+// 2. Excel Upload Handler
 // --------------------------
 
 const uploadElement = document.getElementById("excelUpload");
@@ -46,57 +49,63 @@ uploadElement.addEventListener("change", async (e) => {
 
     log("File selected: " + file.name);
 
-    // Read Excel file
+    // Read Excel as ArrayBuffer
     const data = await file.arrayBuffer();
     const workbook = XLSX.read(data, { type: "array" });
 
     log("Sheets found: " + workbook.SheetNames.join(", "));
 
     if (!workbook.Sheets["ASSESSMENTS"]) {
-        log("❌ Sheet 'ASSESSMENTS' not found.");
+        log("❌ 'ASSESSMENTS' sheet missing.");
         return;
     }
 
-    // Convert Excel sheet to JS objects
-    let sheetData = XLSX.utils.sheet_to_json(workbook.Sheets["ASSESSMENTS"], {
+    // Convert sheet to JS objects
+    let jsRows = XLSX.utils.sheet_to_json(workbook.Sheets["ASSESSMENTS"], {
         defval: null,
         raw: true
     });
 
-    log("Rows loaded from ASSESSMENTS: " + sheetData.length);
+    log("Rows loaded from ASSESSMENTS: " + jsRows.length);
 
     // --------------------------
-    // Create Polars DataFrame
+    // Polars DataFrame
     // --------------------------
-    const pl = window.polars || window.pl;
+
+    const pl = window.polars;
     if (!pl) {
-        log("❌ Polars not available.");
+        log("❌ Polars not loaded yet. Check console and ensure polars.umd.js is reachable.");
         return;
     }
 
+    log("Polars detected. Creating DataFrame...");
+
     let df;
     try {
-        df = pl.DataFrame(sheetData);
+        df = pl.DataFrame(jsRows);
         log("Polars DataFrame created. Columns: " + df.columns.join(", "));
     } catch (err) {
         log("❌ Polars DataFrame error: " + err);
         return;
     }
 
-    // Convert final grade to float
+    // Determine grade column
+    let gradeCol = null;
+
     if (df.columns.includes("final_5scale")) {
+        gradeCol = "final_5scale";
         df = df.withColumn(pl.col("final_5scale").cast(pl.Float64));
     } else if (df.columns.includes("final_grade")) {
+        gradeCol = "final_grade";
         df = df.withColumn(pl.col("final_grade").cast(pl.Float64));
     } else {
-        log("❌ No final grade column found.");
+        log("❌ No recognized grade column found.");
         return;
     }
 
     // --------------------------
-    // GROUP BY class → avg grade
+    // Compute aggregation
     // --------------------------
-    const gradeCol = df.columns.includes("final_5scale") ? "final_5scale" : "final_grade";
 
     let grouped = df
         .groupBy("class")
@@ -105,12 +114,12 @@ uploadElement.addEventListener("change", async (e) => {
 
     const records = grouped.toRecords();
 
-    log("Grouped sample:\n" +
-        JSON.stringify(records.slice(0, 5), null, 2));
+    log("Grouped sample:\n" + JSON.stringify(records.slice(0, 5), null, 2));
 
     // --------------------------
-    // Plot with Plotly
+    // Plotly chart
     // --------------------------
+
     Plotly.newPlot("chart", [{
         x: records.map(r => r.class),
         y: records.map(r => r.avg_grade),
@@ -118,14 +127,15 @@ uploadElement.addEventListener("change", async (e) => {
     }], {
         title: "Average Final Grade by Class",
         xaxis: { title: "Class" },
-        yaxis: { title: "Average Grade", range: [2, 5] }
+        yaxis: { title: "Average Grade (2–5)", range: [2, 5] }
     });
 
     log("Plotly chart rendered.");
 
     // --------------------------
-    // 3. Optional: Python insight via Pyodide
+    // 3. Python insight via Pyodide
     // --------------------------
+
     if (pyodideReady) {
         try {
             pyodide.globals.set("summary_js", records);

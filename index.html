@@ -11,26 +11,25 @@
 
     <input type="file" id="excelUpload" />
 
-    <h2>Debug log</h2>
-    <pre id="log" style="white-space: pre-wrap; background:#f5f5f5; padding:8px;"></pre>
+    <h2>System Log</h2>
+    <pre id="log" style="white-space: pre-wrap; background:#f5f5f5; padding:10px; border:1px solid #ddd;"></pre>
 
-    <h2>Chart: Average final grade (5-point scale) by class</h2>
+    <h2>Dashboard: Average Final Grade by Class</h2>
     <div id="chart" style="width:100%; height:500px;"></div>
 
-    <!-- SheetJS -->
+    <!-- SheetJS (Excel reader) -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-    <!-- Pyodide (for future Python-heavy logic, no pandas) -->
+    <!-- Pyodide (Python runtime without pandas) -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
 
-    <!-- Polars.js (WASM DataFrame engine) -->
+    <!-- Polars (DataFrame engine in WASM) -->
     <script src="https://cdn.jsdelivr.net/npm/@polars/js@0.12.0/dist/polars.min.js"></script>
 
-    <!-- Plotly (explicit modern version) -->
+    <!-- Plotly (Charts) -->
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 
-    <!-- Main JS -->
-    <script src="app.js?v=1001"></script>
-
+    <!-- Our main JS (renamed to bypass caching problems) -->
+    <script src="main.js?v=1001"></script>
 </body>
 </html>

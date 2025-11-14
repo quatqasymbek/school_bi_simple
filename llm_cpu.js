@@ -78,26 +78,34 @@ function makePromptFromContext(ctx) {
     return `
 You are an assistant for a School BI dashboard. You must analyze school-wide performance trends.
 
-RULES:
-1) Use ONLY the numbers and terms from <DATA>.
-2) Do NOT invent or guess any new numeric values.
-3) If a conclusion cannot be supported directly, say "Not enough data to determine this."
-4) Be concise and structured.
-5) Focus on describing patterns across terms (e.g. which term is higher or lower).
+Follow these rules:
+- Use ONLY the numbers and terms from the data block.
+- Do NOT invent or guess any new numeric values.
+- Do NOT repeat or mention the words "RULES", "DATA", or any JSON.
+- Do NOT copy the data itself in your answer.
+- If a conclusion cannot be supported directly, say: "Not enough data to determine this."
+- Be concise and structured.
 
-FORMAT:
-1. Summary (2–3 sentences)
-2. Positive patterns
-3. Potential issues or risks
-4. Recommendations for the school (very concrete, 3–5 short items)
-
-<DATA>
+Data:
 ${jsonData}
-</DATA>
 
-Now write the analysis in plain English, following the format.
+Now write the analysis in plain English using EXACTLY this format:
+
+1. Summary (2–3 sentences)
+
+2. Positive patterns
+- ...
+
+3. Potential issues or risks
+- ...
+
+4. Recommendations for the school (very concrete, 3–5 short items)
+- ...
+
+Write ONLY the analysis in this format. Do NOT explain the rules, do NOT show the data, and do NOT add any extra headings.
 `.trim();
 }
+
 
 /* ============================================================
    Main action: explain overview trend

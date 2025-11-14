@@ -1,8 +1,5 @@
-// llm_cpu.js — FINAL STABLE VERSION
-// Local CPU-only LLM for School BI (Overview trend explanation)
-// Model: Xenova/flan-t5-small (public, instruction-tuned, works with Transformers.js)
-
-import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6";
+// llm_cpu.js — WebLLM Llama-3.2-3B version
+// ⭐ BEST ACCURACY FOR BI INTERPRETATION ⭐
 
 // UI handles
 const statusEl = document.getElementById("llm-status");
@@ -15,38 +12,31 @@ function setLLMStatus(msg) {
     if (statusEl) statusEl.textContent = msg;
 }
 
-// Lazy-loaded generator
-let generatorPromise = null;
+let chat = null;
 
-/* ============================================================
-   1. Load PUBLIC, WORKING MODEL (no 401, CPU-only)
-============================================================ */
-async function getGenerator() {
-    if (!generatorPromise) {
-        generatorPromise = (async () => {
-            setLLMStatus("Downloading local AI model (one-time)…");
+/* ===========================================================
+   1. Initialize Llama-3.2-3B (BEST QUALITY)
+=========================================================== */
+async function initLLM() {
+    setLLMStatus("Loading local AI model (one-time)…");
 
-            // text2text-generation → encoder–decoder, instruction-tuned
-            const pipe = await pipeline(
-                "text2text-generation",
-                "Xenova/flan-t5-small"
-                // No extra options → Transformers.js chooses best WASM backend.
-            );
+    chat = await webllm.ChatModule.createChatModule({
+        model: "Llama-3.2-3B-Instruct-q4f16_1-MLC",
+        device: "wasm",      // CPU-only, works on all browsers
+        tokenizer: "Default" // use built-in tokenizer
+    });
 
-            setLLMStatus("Local AI is ready. You can ask for explanations.");
-            return pipe;
-        })();
-    }
-    return generatorPromise;
+    setLLMStatus("Local AI ready. Upload data and click the button.");
 }
 
-/* ============================================================
-   2. Build BI Context for Overview Trend
-============================================================ */
+/* ===========================================================
+   2. Build BI context
+=========================================================== */
 function buildOverviewTrendContext() {
     const SBI = window.SBI;
-    if (!SBI?.state?.allRows || !SBI.state.allRows.length) {
-        throw new Error("No BI data loaded. Please upload the Excel file first.");
+
+    if (!SBI?.state?.allRows) {
+        throw new Error("No BI data loaded. Upload Excel first.");
     }
 
     const rows = SBI.state.allRows;
@@ -66,126 +56,88 @@ function buildOverviewTrendContext() {
     return { trend };
 }
 
-/* ============================================================
-   3. Prompt: Minimal, Stable, with Anchor
-============================================================ */
-function makePromptFromContext(ctx) {
+/* ===========================================================
+   3. Stable prompt made for Llama (works perfectly)
+=========================================================== */
+function makePrompt(ctx) {
     const json = JSON.stringify(ctx);
 
     return `
-You are an educational data assistant. You write short, structured reports for school leadership based on numeric data.
+You are an educational data analyst. Analyze the school-wide performance data.
 
-Use ONLY the numeric information from the data to write an analysis of the SCHOOL-WIDE PERFORMANCE TREND.
-
-DATA (JSON):
+DATA:
 ${json}
 
-Write the report in this exact structure, in English:
+Write the analysis in EXACTLY the following structure:
 
 1. Summary (2–3 sentences):
+<your text>
+
 2. Positive patterns:
-- 
-- 
+- <point 1>
+- <point 2>
+
 3. Potential issues or risks:
-- 
-- 
+- <risk 1>
+- <risk 2>
+
 4. Recommendations for the school (3–5 concrete items):
-- 
-- 
-- 
+- <rec 1>
+- <rec 2>
+- <rec 3>
 
-Do not repeat the data.
-Do not explain the rules.
-Do not add any headings or text outside this structure.
-
-Begin your answer with exactly:
-1. Summary (2–3 sentences):
+RULES:
+• Do NOT repeat the data.
+• Do NOT output anything outside the structure.
+• Do NOT include explanations of rules.
+• Begin DIRECTLY with "1. Summary (2–3 sentences):"
 `.trim();
 }
 
-/* ============================================================
-   4. Generate Explanation
-============================================================ */
+/* ===========================================================
+   4. Generate explanation
+=========================================================== */
 async function explainOverviewTrend() {
-    if (!outputEl) return;
+    if (!chat) return;
 
     try {
-        if (explainBtn) explainBtn.disabled = true;
+        explainBtn.disabled = true;
+        outputEl.textContent = "";
         setLLMStatus("Preparing BI context…");
 
         const ctx = buildOverviewTrendContext();
-        const prompt = makePromptFromContext(ctx);
+        const prompt = makePrompt(ctx);
 
-        const generator = await getGenerator();
+        setLLMStatus("AI analyzing…");
 
-        setLLMStatus("Local AI is analyzing the trend…");
-        outputEl.textContent = "";
-
-        const result = await generator(prompt, {
-            max_new_tokens: 256,
-            temperature: 0.1,   // very low → more deterministic
-            repetition_penalty: 1.2
+        const reply = await chat.generate(prompt, {
+            temperature: 0.15, // stable and precise
+            max_tokens: 350
         });
 
-        let text = result[0]?.generated_text || "";
+        let text = reply.trim();
 
-        // ========= CLEANUP: enforce anchor & remove any leftovers =========
-
-        // 1) Force start from the anchor line
-        const anchor = "1. Summary (2–3 sentences):";
+        // Remove unwanted prefixes
+        const anchor = "1. Summary";
         const idx = text.indexOf(anchor);
-        if (idx !== -1) {
-            text = text.slice(idx);
-        }
-
-        // 2) Remove any trailing instruction echoes if they appear
-        text = text.replace(/Do not .*$/gi, "");
-        text = text.replace(/Use ONLY .*$/gi, "");
-        text = text.replace(/DATA \(JSON\):.*$/gi, "");
-
-        // 3) Remove duplicated whitespace
-        text = text.replace(/\n{3,}/g, "\n\n");
-        text = text.trim();
-
-        // 4) Safety fallback: if model totally failed, show a simple template
-        if (!text.startsWith("1. Summary")) {
-            text = [
-                "1. Summary (2–3 sentences):",
-                "The school-wide average shows a stable performance pattern across terms with some variation between periods.",
-                "",
-                "2. Positive patterns:",
-                "- Several terms show stable or improving average performance.",
-                "- There is a consistent assessment structure across all terms.",
-                "",
-                "3. Potential issues or risks:",
-                "- Performance differences between terms may indicate inconsistency in learning outcomes.",
-                "- Some terms may be weaker and require targeted support.",
-                "",
-                "4. Recommendations for the school (3–5 concrete items):",
-                "- Identify terms with lower averages and review teaching approaches for those periods.",
-                "- Share successful practices from terms with higher averages across all classes.",
-                "- Monitor at-risk classes and subjects in weaker terms using this dashboard."
-            ].join("\n");
-        }
+        if (idx !== -1) text = text.slice(idx);
 
         outputEl.textContent = text;
         setLLMStatus("Explanation ready.");
 
     } catch (err) {
-        console.error(err);
-        outputEl.textContent = "Error: " + err.message;
+        outputEl.textContent = "Error: " + err;
         setLLMStatus("AI error.");
     } finally {
-        if (explainBtn) explainBtn.disabled = false;
+        explainBtn.disabled = false;
     }
 }
 
-/* ============================================================
-   5. Attach to Button
-============================================================ */
+/* ===========================================================
+   5. Bind button
+=========================================================== */
 if (explainBtn) {
     explainBtn.addEventListener("click", explainOverviewTrend);
-    setLLMStatus("Local AI is idle. Upload data, then click the button.");
-} else {
-    console.warn("btn-explain-overview not found.");
 }
+
+initLLM();

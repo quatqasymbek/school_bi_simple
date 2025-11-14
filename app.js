@@ -49,7 +49,6 @@ uploadElement.addEventListener("change", async (e) => {
         return;
     }
 
-    // Convert Excel → raw JSON
     let sheetRaw = XLSX.utils.sheet_to_json(workbook.Sheets["ASSESSMENTS"], {
         defval: null,
         raw: true
@@ -57,12 +56,13 @@ uploadElement.addEventListener("change", async (e) => {
 
     console.log("Rows loaded:", sheetRaw.length);
 
-    // Convert ALL values to strings/null (safe for JSON)
+    // Force values → strings
     let cleaned = sheetRaw.map(row => {
         const cleanedRow = {};
         for (const key in row) {
             let val = row[key];
-            cleanedRow[key] = (val === undefined || val === null) ? null : String(val);
+            cleanedRow[key] =
+                (val === undefined || val === null) ? null : String(val);
         }
         return cleanedRow;
     });
@@ -76,24 +76,26 @@ uploadElement.addEventListener("change", async (e) => {
     }
 
     try {
-        // Pass as JSON STRING instead of JS objects
+        // Pass JSON string to Python
         const jsonString = JSON.stringify(cleaned);
         pyodide.globals.set("assess_json", jsonString);
 
-        // Load JSON in Python, then construct pandas DF
+        // Pyodide-safe DataFrame construction
         const result = pyodide.runPython(`
 import json
 import pandas as pd
 
-# Load from JSON
-data = json.loads(assess_json)
+raw = json.loads(assess_json)
 
-# Construct DataFrame
-df = pd.DataFrame(data)
+# Build DataFrame safely
+rows = []
+for r in raw:
+    rows.append(r)
 
-# Convert numeric columns
-num_cols = ["FA", "SAU", "SAT", "final_percent", "final_5scale"]
-for col in num_cols:
+df = pd.DataFrame.from_records(rows)
+
+# Convert numerics
+for col in ["FA", "SAU", "SAT", "final_percent", "final_5scale"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 

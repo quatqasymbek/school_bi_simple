@@ -1,8 +1,3 @@
-// llm_cpu.js
-// Local CPU-only LLM using Transformers.js + T5-Small (Xenova)
-// Fully anonymous, no HuggingFace login required
-// Works on old PCs (WASM backend, no GPU/WebGPU)
-
 import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6";
 
 const statusEl = document.getElementById("llm-status");
@@ -16,17 +11,18 @@ function setLLMStatus(msg) {
 
 let generatorPromise = null;
 
-/* Load T5-Small (public, CPU-friendly, no 401) */
+/* Load SAFE PUBLIC MODEL */
 async function getGenerator() {
     if (!generatorPromise) {
         generatorPromise = (async () => {
             setLLMStatus("Downloading local AI model (one-time)…");
 
+            // SAFE, PUBLIC, AUTH-FREE MODEL
             const pipe = await pipeline(
                 "text2text-generation",
-                "Xenova/t5-small",   // <---- SAFE PUBLIC MODEL
+                "Xenova/t5-small",    // <----- FIXED
                 {
-                    dtype: "q4",      // optimized quantization
+                    dtype: "q4",
                     device: "wasm"
                 }
             );
@@ -38,12 +34,10 @@ async function getGenerator() {
     return generatorPromise;
 }
 
-/* Build BI context */
+/* BI context */
 function buildOverviewTrendContext() {
     const SBI = window.SBI;
-    if (!SBI?.state?.allRows?.length) {
-        throw new Error("No BI data loaded.");
-    }
+    if (!SBI?.state?.allRows) throw new Error("No BI data loaded.");
 
     const rows = SBI.state.allRows;
     const terms = SBI.state.allTerms;
@@ -62,22 +56,22 @@ function buildOverviewTrendContext() {
     return { trend };
 }
 
-/* T5-friendly template */
+/* T5-friendly prompt */
 function makePromptFromContext(ctx) {
-    const json = JSON.stringify(ctx);
+    const jsonData = JSON.stringify(ctx);
 
     return `
 Using the following data:
-${json}
+${jsonData}
 
-Write a structured school performance analysis:
+Write the school trend analysis in this exact format:
 
 1. Summary (2–3 sentences):
 [Write here]
 
 2. Positive patterns:
-- [Point 1]
-- [Point 2]
+- [Item 1]
+- [Item 2]
 
 3. Potential issues or risks:
 - [Risk 1]
@@ -88,16 +82,14 @@ Write a structured school performance analysis:
 - [Item 2]
 - [Item 3]
 
-Begin directly with "1. Summary".
+Begin with "1. Summary".
 `.trim();
 }
 
-/* Run inference */
+/* Generate explanation */
 async function explainOverviewTrend() {
-    if (!outputEl) return;
-
     try {
-        if (explainBtn) explainBtn.disabled = true;
+        explainBtn.disabled = true;
 
         setLLMStatus("Preparing BI context…");
         const ctx = buildOverviewTrendContext();
@@ -108,25 +100,20 @@ async function explainOverviewTrend() {
         setLLMStatus("AI analyzing trend…");
 
         const result = await generator(prompt, {
-            max_new_tokens: 220,
-            temperature: 0.2,
+            max_new_tokens: 200,
+            temperature: 0.2
         });
 
         let text = result[0]?.generated_text || "";
 
-        /* Cleanup */
+        // Clean: always start from "1. Summary"
         const idx = text.indexOf("1. Summary");
         if (idx > 0) text = text.slice(idx);
 
         text = text
             .replace(/\[Write here\]/g, "")
-            .replace(/\[Point 1\]/g, "")
-            .replace(/\[Point 2\]/g, "")
-            .replace(/\[Risk 1\]/g, "")
-            .replace(/\[Risk 2\]/g, "")
-            .replace(/\[Item 1\]/g, "")
-            .replace(/\[Item 2\]/g, "")
-            .replace(/\[Item 3\]/g, "")
+            .replace(/\[Item \d\]/g, "")
+            .replace(/\[Risk \d\]/g, "")
             .trim();
 
         outputEl.textContent = text;
@@ -137,11 +124,10 @@ async function explainOverviewTrend() {
         setLLMStatus("AI error.");
         console.error(err);
     } finally {
-        if (explainBtn) explainBtn.disabled = false;
+        explainBtn.disabled = false;
     }
 }
 
-/* Attach button */
 if (explainBtn) {
     explainBtn.addEventListener("click", explainOverviewTrend);
     setLLMStatus("Local AI is idle. Upload data, then click the button.");

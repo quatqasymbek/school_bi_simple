@@ -1,141 +1,256 @@
+// dashboard_teacher.js
 console.log("dashboard_teacher.js loaded");
 
-// teacherAssignments = {
-//   "Teacher 1": [
-//       { subject: "...", term: "...", class: "1A" },
-//       ...
-//   ]
-// }
+window.SBI_Teacher = (function () {
+    const state = SBI.state;
 
-let teacherAssignments = {};
-let teacherList = [];
+    let teacherSelect, subjectSelect;
+    let chartPerf, chartLoad, chartTrend;
 
-// Build mapping between teachers and the classes they teach
-function buildTeacherAssignments(teachers, assessmentRows) {
-    teacherAssignments = {};
-    teacherList = [];
+    function init() {
+        teacherSelect  = document.getElementById("teacherSelect");
+        subjectSelect  = document.getElementById("teacherSubjectSelect");
+        chartPerf      = document.getElementById("chart-teacher-performance");
+        chartLoad      = document.getElementById("chart-teacher-subjects");
+        chartTrend     = document.getElementById("chart-teacher-trend");
 
-    if (!teachers || teachers.length === 0) {
-        console.warn("No TEACHERS sheet data available");
-        return;
+        if (teacherSelect) teacherSelect.addEventListener("change", onTeacherChange);
+        if (subjectSelect) subjectSelect.addEventListener("change", update);
     }
 
-    teachers.forEach(t => {
-        const teacher = String(t.name).trim();
-        const subject = String(t.subject).trim();
-        const term = String(t.term).trim();
+    /* -----------------------------
+       Helpers for dropdowns
+    ------------------------------*/
 
-        // Initialize teacher container
-        if (!teacherAssignments[teacher]) teacherAssignments[teacher] = [];
+    function populateTeacherList() {
+        if (!teacherSelect) return;
+        const teachers = state.allTeachers || [];
 
-        // Add to teacher list
-        if (!teacherList.includes(teacher)) teacherList.push(teacher);
-
-        // Now match to ASSESSMENTS (find classes taught in that subject+term)
-        assessmentRows.forEach(r => {
-            if (r.subject === subject && r.term === term) {
-                teacherAssignments[teacher].push({
-                    subject: subject,
-                    term: term,
-                    class: r.class
-                });
-            }
+        teacherSelect.innerHTML = "";
+        teachers.forEach(t => {
+            const opt = document.createElement("option");
+            opt.value = t.teacher_id;
+            opt.textContent = t.teacher_name;
+            teacherSelect.appendChild(opt);
         });
-    });
-
-    console.log("Computed teacherAssignments:", teacherAssignments);
-}
-
-
-function renderTeacherDashboard(rows) {
-    const teacherSelect = document.getElementById("teacherSelect");
-    const subjectSelect = document.getElementById("teacherSubjectSelect");
-
-    const teacher = teacherSelect.value;
-    if (!teacher) return;
-
-    const mapping = teacherAssignments[teacher] || [];
-
-    // Get unique subjects taught by this teacher
-    const subjects = [...new Set(mapping.map(m => m.subject))];
-
-    // Fill subject dropdown
-    subjectSelect.innerHTML = "";
-    subjects.forEach(s => {
-        const opt = document.createElement("option");
-        opt.value = s;
-        opt.textContent = s;
-        subjectSelect.appendChild(opt);
-    });
-
-    const subject = subjectSelect.value || subjects[0];
-    if (!subject) return;
-
-    // Find classes taught by teacher for this subject
-    const classes = mapping
-        .filter(m => m.subject === subject)
-        .map(m => m.class);
-
-    console.log("By Teacher → classes matched:", classes);
-
-    // Filter the rows for these classes + this subject
-    const filtered = rows.filter(r =>
-        classes.includes(r.class) && r.subject === subject
-    );
-
-    console.log(`By Teacher → filtered rows: ${filtered.length}`);
-
-    // If no data — show message
-    if (filtered.length === 0) {
-        document.getElementById("chart-teacher-performance").innerHTML =
-            "<p>No data for this teacher/subject.</p>";
-        return;
     }
 
-    // -----------------------------
-    // Performance Boxplot
-    // -----------------------------
-    Plotly.newPlot("chart-teacher-performance", [{
-        x: filtered.map(r => r.term),
-        y: filtered.map(r => r.final_percent),
-        type: "box"
-    }], {
-        title: `${teacher} — Performance (${subject})`
-    });
+    function subjectsForTeacher(teacherId) {
+        const assignments = state.assignments || state.teacherAssignments || [];
+        const idxSubj = state.idx_subjects || {};
 
-    // -----------------------------
-    // Subject Load Chart
-    // -----------------------------
-    const loadCounts = {};
-    classes.forEach(c => {
-        loadCounts[c] = filtered.filter(r => r.class === c).length;
-    });
+        const subjSet = new Set();
 
-    Plotly.newPlot("chart-teacher-subjects", [{
-        x: Object.keys(loadCounts),
-        y: Object.values(loadCounts),
-        type: "bar"
-    }], {
-        title: "Class Load (how many marks the teacher gave)"
-    });
+        assignments.forEach(a => {
+            if (String(a.teacher_id || "").trim() !== teacherId) return;
 
-    // -----------------------------
-    // Trend Chart
-    // -----------------------------
-    const trend = {};
-    filtered.forEach(r => {
-        if (!trend[r.term]) trend[r.term] = [];
-        trend[r.term].push(r.final_percent);
-    });
+            const sid = String(a.subject_id || "").trim();
+            if (!sid) return;
 
-    const termList = Object.keys(trend);
-    const avgList = termList.map(t => trend[t].reduce((a,b)=>a+b,0)/trend[t].length);
+            const subjRow = idxSubj[sid] || {};
+            const name = String(subjRow.subject_name || subjRow.name || sid).trim();
 
-    Plotly.newPlot("chart-teacher-trend", [{
-        x: termList,
-        y: avgList,
-        mode: "lines+markers"
-    }], {
-        title: "Average Grade Trend"
-    });
-}
+            subjSet.add(JSON.stringify({ sid, name }));
+        });
+
+        return Array.from(subjSet).map(s => JSON.parse(s));
+    }
+
+    function populateSubjectList(teacherId) {
+        if (!subjectSelect) return;
+
+        const subjects = subjectsForTeacher(teacherId);
+        subjectSelect.innerHTML = "";
+
+        subjects.forEach(s => {
+            const opt = document.createElement("option");
+            opt.value = s.sid;
+            opt.textContent = s.name;
+            subjectSelect.appendChild(opt);
+        });
+    }
+
+    /* -----------------------------
+       Data filtering
+    ------------------------------*/
+
+    function filterRowsForTeacher(teacherId, subjectId) {
+        const rows = state.allRows || [];
+        const assignments = state.assignments || state.teacherAssignments || [];
+
+        // Build quick lookup set of (subject_id|class_id|term_id) for this teacher
+        const keySet = new Set();
+        assignments.forEach(a => {
+            if (String(a.teacher_id || "").trim() !== teacherId) return;
+
+            const sid = String(a.subject_id || "").trim();
+            const cid = String(a.class_id   || "").trim();
+            const tid = String(a.term_id    || "").trim();
+            if (!sid || !cid || !tid) return;
+
+            keySet.add(`${sid}|${cid}|${tid}`);
+        });
+
+        if (!keySet.size) return [];
+
+        return rows.filter(r => {
+            const sid = String(r.subject_id || "").trim();
+            const cid = String(r.class_id   || "").trim();
+            const tid = String(r.term_id    || "").trim();
+            if (!sid || !cid || !tid) return false;
+
+            if (subjectId && sid !== subjectId) return false;
+
+            const key = `${sid}|${cid}|${tid}`;
+            return keySet.has(key);
+        });
+    }
+
+    /* -----------------------------
+       Render functions
+    ------------------------------*/
+
+    function renderPerformanceBox(rows, teacherName, subjectName) {
+        if (!chartPerf) return;
+
+        if (!rows.length) {
+            Plotly.newPlot(chartPerf, [], {
+                title: "No data for this teacher / subject",
+                xaxis: { title: "Term" },
+                yaxis: { title: "Final percent" }
+            });
+            return;
+        }
+
+        const yVals = rows
+            .map(r => Number(r.final_percent ?? r.final_5scale ?? NaN))
+            .filter(v => !Number.isNaN(v));
+
+        Plotly.newPlot(chartPerf, [{
+            x: rows.map(r => r.term),
+            y: yVals,
+            type: "box"
+        }], {
+            title: `${teacherName} — Performance (${subjectName})`,
+            xaxis: { title: "Term" },
+            yaxis: { title: "Grade" }
+        });
+    }
+
+    function renderLoadChart(rows) {
+        if (!chartLoad) return;
+
+        if (!rows.length) {
+            Plotly.newPlot(chartLoad, [], {
+                title: "No classes for this teacher / subject",
+                xaxis: { title: "Class" },
+                yaxis: { title: "Number of student-term records" }
+            });
+            return;
+        }
+
+        const counts = {};
+        rows.forEach(r => {
+            const cls = r.class;
+            if (!counts[cls]) counts[cls] = 0;
+            counts[cls]++;
+        });
+
+        Plotly.newPlot(chartLoad, [{
+            x: Object.keys(counts),
+            y: Object.values(counts),
+            type: "bar"
+        }], {
+            title: "Class load (how many student×term results)",
+            xaxis: { title: "Class" },
+            yaxis: { title: "Count" }
+        });
+    }
+
+    function renderTrendChart(rows) {
+        if (!chartTrend) return;
+
+        if (!rows.length) {
+            Plotly.newPlot(chartTrend, [], {
+                title: "No trend data",
+                xaxis: { title: "Term" },
+                yaxis: { title: "Average grade" }
+            });
+            return;
+        }
+
+        const byTerm = SBI.groupBy(
+            rows,
+            r => r.term,
+            r => Number(r.final_percent ?? r.final_5scale ?? NaN)
+        );
+
+        const terms = Object.keys(byTerm);
+        const avg = terms.map(t => SBI.mean(byTerm[t]));
+
+        Plotly.newPlot(chartTrend, [{
+            x: terms,
+            y: avg,
+            mode: "lines+markers"
+        }], {
+            title: "Average grade trend for this teacher / subject",
+            xaxis: { title: "Term" },
+            yaxis: { title: "Average grade" }
+        });
+    }
+
+    /* -----------------------------
+       Controller
+    ------------------------------*/
+
+    function onTeacherChange() {
+        const teacherId = teacherSelect?.value;
+        if (!teacherId) return;
+
+        populateSubjectList(teacherId);
+        update();
+    }
+
+    function update() {
+        if (!teacherSelect || !subjectSelect) return;
+
+        const teacherId = teacherSelect.value;
+        if (!teacherId) return;
+
+        const teacher = (state.allTeachers || []).find(t => t.teacher_id === teacherId);
+        const teacherName = teacher ? teacher.teacher_name : teacherId;
+
+        const subjectId = subjectSelect.value;
+        const subjList = subjectsForTeacher(teacherId);
+        const subjObj = subjList.find(s => s.sid === subjectId);
+        const subjectName = subjObj ? subjObj.name : subjectId;
+
+        const rows = filterRowsForTeacher(teacherId, subjectId);
+        SBI.log(`By Teacher → rows for ${teacherName}, ${subjectName}: ${rows.length}`);
+
+        renderPerformanceBox(rows, teacherName, subjectName);
+        renderLoadChart(rows);
+        renderTrendChart(rows);
+    }
+
+    function onDataLoaded() {
+        if (!state.allRows.length) {
+            SBI.log("Teacher dashboard: no data yet.");
+            return;
+        }
+        populateTeacherList();
+
+        if (teacherSelect && teacherSelect.options.length) {
+            teacherSelect.selectedIndex = 0;
+            onTeacherChange();
+        }
+    }
+
+    return {
+        init,
+        onDataLoaded,
+        update
+    };
+})();
+
+SBI_Teacher.init();

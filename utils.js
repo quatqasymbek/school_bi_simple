@@ -3,14 +3,33 @@ console.log("utils.js loaded");
 
 window.SBI = window.SBI || {};
 SBI.state = {
-    allRows: [],         // ASSESSMENTS normalized rows
+    // Core analytics rows: one per student × subject × term
+    allRows: [],
     allTerms: [],
     allSubjects: [],
     allClasses: [],
-    allTeachers: [],     // from TEACHERS
-    teacherAssignments: {}, // teacher_id -> { name, subjects:Set, classes:Set }
 
-    attendanceRows: [],  // from ATTENDANCE
+    // Dimension / DB tables from the new Excel template
+    students: [],        // УЧАЩИЕСЯ
+    classesTable: [],    // КЛАССЫ
+    subjectsTable: [],   // ПРЕДМЕТЫ
+    termsTable: [],      // ЧЕТВЕРТИ
+    teachers: [],        // УЧИТЕЛЯ
+    assignments: [],     // НАЗНАЧЕНИЯ_ПРЕПОД
+
+    // Quick lookup indexes (filled in main.js)
+    idx_students: {},
+    idx_classes: {},
+    idx_subjects: {},
+    idx_terms: {},
+    idx_teachers: {},
+
+    // Teacher-centric helpers (for the dashboard)
+    allTeachers: [],         // [{ teacher_id, teacher_name, qualification_* }]
+    teacherAssignments: [],  // alias of assignments, for convenience
+
+    // Attendance (optional / future)
+    attendanceRows: [],      // if you still keep an ATTENDANCE sheet
     attendanceTerms: [],
     attendanceClasses: []
 };

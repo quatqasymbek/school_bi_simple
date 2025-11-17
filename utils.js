@@ -1,35 +1,39 @@
 // utils.js
-console.log("utils.js loaded");
+console.log("utils.js загружен");
 
 window.SBI = window.SBI || {};
+
 SBI.state = {
-    // Core analytics rows: one per student × subject × term
+    // агрегированные оценки: одна строка = ученик × предмет × четверть
     allRows: [],
     allTerms: [],
     allSubjects: [],
     allClasses: [],
 
-    // Dimension / DB tables from the new Excel template
-    students: [],        // УЧАЩИЕСЯ
-    classesTable: [],    // КЛАССЫ
-    subjectsTable: [],   // ПРЕДМЕТЫ
-    termsTable: [],      // ЧЕТВЕРТИ
-    teachers: [],        // УЧИТЕЛЯ
-    assignments: [],     // НАЗНАЧЕНИЯ_ПРЕПОД
+    // таблицы из Excel
+    students: [],
+    classesTable: [],
+    subjectsTable: [],
+    termsTable: [],
+    teachers: [],
+    assignments: [],
 
-    // Quick lookup indexes (filled in main.js)
+    // индексы
     idx_students: {},
     idx_classes: {},
     idx_subjects: {},
     idx_terms: {},
     idx_teachers: {},
 
-    // Teacher-centric helpers (for the dashboard)
-    allTeachers: [],         // [{ teacher_id, teacher_name, qualification_* }]
-    teacherAssignments: [],  // alias of assignments, for convenience
+    // учителя
+    allTeachers: [],
+    teacherAssignments: [],
 
-    // Attendance (optional / future)
-    attendanceRows: [],      // if you still keep an ATTENDANCE sheet
+    // исходные оценки (ОЦЕНКИ)
+    gradesRaw: [],
+
+    // посещаемость
+    attendanceRows: [],
     attendanceTerms: [],
     attendanceClasses: []
 };
@@ -39,14 +43,13 @@ const statusEl = document.getElementById("status");
 
 SBI.log = function (msg) {
     console.log(msg);
-    if (logEl) {
-        logEl.textContent += msg + "\n";
-        logEl.scrollTop = logEl.scrollHeight;
-    }
+    if (!logEl) return;
+    logEl.textContent += msg + "\n";
+    logEl.scrollTop = logEl.scrollHeight;
 };
 
 SBI.setStatus = function (msg) {
-    console.log("STATUS:", msg);
+    console.log("СТАТУС:", msg);
     if (statusEl) statusEl.textContent = msg;
 };
 
@@ -81,10 +84,28 @@ SBI.groupBy = function (rows, keyFn, valueFn) {
     return map;
 };
 
-// Simple page switching
+// Качество знаний: доля оценок 4–5
+SBI.knowledgeRatio = function (rows) {
+    if (!rows || !rows.length) return null;
+
+    const vals = rows.map(r => {
+        if (r.knowledge_quality != null) {
+            return Number(r.knowledge_quality);
+        }
+        const g = Number(r.final_5scale);
+        if (!Number.isNaN(g)) return g >= 4 ? 1 : 0;
+        return null;
+    }).filter(v => v != null && !Number.isNaN(v));
+
+    if (!vals.length) return null;
+    return SBI.mean(vals);
+};
+
+// Переключение страниц
 function switchPage(pageId) {
-    console.log("Switching to page:", pageId);
-    document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+    console.log("Переключение страницы:", pageId);
+    const pages = document.querySelectorAll(".page");
+    pages.forEach(p => p.classList.remove("active"));
     const target = document.getElementById(pageId);
     if (target) target.classList.add("active");
 }

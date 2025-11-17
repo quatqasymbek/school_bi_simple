@@ -1,143 +1,116 @@
-// llm_cpu.js — WebLLM Llama-3.2-3B version
-// ⭐ BEST ACCURACY FOR BI INTERPRETATION ⭐
-
-// UI handles
-const statusEl = document.getElementById("llm-status");
-const outputEl = document.getElementById("overview-ai-explanation");
-const explainBtn = document.getElementById("btn-explain-overview");
-
-// Status helper
-function setLLMStatus(msg) {
-    console.log("[LLM]", msg);
-    if (statusEl) statusEl.textContent = msg;
-}
+// llm_cpu.js
+console.log("llm_cpu.js загружен (модуль LLM)");
 
 let chat = null;
+let llmReady = false;
+let llmInitStarted = false;
 
-/* ===========================================================
-   1. Initialize Llama-3.2-3B (BEST QUALITY)
-=========================================================== */
 async function initLLM() {
-    setLLMStatus("Loading local AI model (one-time)…");
+    if (llmReady || llmInitStarted) return;
+    llmInitStarted = true;
 
-    chat = await webllm.ChatModule.createChatModule({
-        model: "Llama-3.2-3B-Instruct-q4f16_1-MLC",
-        device: "wasm",      // CPU-only, works on all browsers
-        tokenizer: "Default" // use built-in tokenizer
-    });
-
-    setLLMStatus("Local AI ready. Upload data and click the button.");
-}
-
-/* ===========================================================
-   2. Build BI context
-=========================================================== */
-function buildOverviewTrendContext() {
-    const SBI = window.SBI;
-
-    if (!SBI?.state?.allRows) {
-        throw new Error("No BI data loaded. Upload Excel first.");
+    if (typeof window.webllm === "undefined") {
+        console.warn("[LLM] webllm не найден. Локальный ИИ отключён.");
+        const status = document.getElementById("llm-status");
+        const btn = document.getElementById("btn-explain-overview");
+        if (status) status.textContent = "Локальный ИИ недоступен в этой сборке.";
+        if (btn) btn.disabled = true;
+        return;
     }
 
-    const rows = SBI.state.allRows;
-    const terms = SBI.state.allTerms;
+    const status = document.getElementById("llm-status");
+    if (status) status.textContent = "Загрузка локальной модели ИИ (однократно)…";
 
-    const byTerm = SBI.groupBy(
-        rows,
-        r => r.term,
-        r => Number(r.final_percent ?? r.final_5scale ?? NaN)
-    );
+    chat = await window.webllm.ChatModule.createChatModule({
+        model: "Llama-3.2-3B-Instruct-q4f16_1-MLC",
+        device: "wasm",
+        tokenizer: "Default"
+    });
 
-    const trend = terms.map(t => ({
-        term: t,
-        avg: SBI.mean(byTerm[t] || [])
-    }));
-
-    return { trend };
+    llmReady = true;
+    if (status) status.textContent = "Локальный ИИ готов к работе.";
 }
 
-/* ===========================================================
-   3. Stable prompt made for Llama (works perfectly)
-=========================================================== */
-function makePrompt(ctx) {
-    const json = JSON.stringify(ctx);
+function buildOverviewTrendContext() {
+    const state = window.SBI ? SBI.state : { allRows: [] };
+    const rows = state.allRows || [];
+    const byTerm = SBI.groupBy(rows, function (r) {
+        return r.term;
+    }, function (r) {
+        return Number(r.final_percent ?? r.final_5scale ?? NaN);
+    });
 
-    return `
-You are an educational data analyst. Analyze the school-wide performance data.
+    const terms = state.allTerms || [];
+    const trend = terms.map(function (t) {
+        return {
+            term: t,
+            avg: SBI.mean(byTerm[t] || [])
+        };
+    });
 
-DATA:
-${json}
-
-Write the analysis in EXACTLY the following structure:
-
-1. Summary (2–3 sentences):
-<your text>
-
-2. Positive patterns:
-- <point 1>
-- <point 2>
-
-3. Potential issues or risks:
-- <risk 1>
-- <risk 2>
-
-4. Recommendations for the school (3–5 concrete items):
-- <rec 1>
-- <rec 2>
-- <rec 3>
-
-RULES:
-• Do NOT repeat the data.
-• Do NOT output anything outside the structure.
-• Do NOT include explanations of rules.
-• Begin DIRECTLY with "1. Summary (2–3 sentences):"
-`.trim();
+    return { trend: trend };
 }
 
-/* ===========================================================
-   4. Generate explanation
-=========================================================== */
 async function explainOverviewTrend() {
-    if (!chat) return;
+    const btn = document.getElementById("btn-explain-overview");
+    const status = document.getElementById("llm-status");
+    const out = document.getElementById("overview-ai-explanation");
+
+    if (!btn || !status || !out) return;
+
+    await initLLM();
+    if (!llmReady || !chat) {
+        // webllm отсутствует – уже показали сообщение
+        return;
+    }
+
+    btn.disabled = true;
+    status.textContent = "ИИ анализирует данные…";
+    out.textContent = "";
+
+    const context = buildOverviewTrendContext();
+    const json = JSON.stringify(context);
+
+    const prompt =
+        "Ты — помощник завуча школы. На входе у тебя JSON с трендом среднего балла по четвертям.\n" +
+        "Нужно кратко и понятным языком описать ситуацию.\n\n" +
+        "Данные:\n" + json + "\n\n" +
+        "Сформируй ответ в формате:\n" +
+        "1. Краткий вывод\n" +
+        "2. Положительные моменты\n" +
+        "3. Риски и проблемные зоны\n" +
+        "4. Рекомендации для школы\n\n" +
+        "Пиши по-русски, без сложной терминологии.";
 
     try {
-        explainBtn.disabled = true;
-        outputEl.textContent = "";
-        setLLMStatus("Preparing BI context…");
-
-        const ctx = buildOverviewTrendContext();
-        const prompt = makePrompt(ctx);
-
-        setLLMStatus("AI analyzing…");
-
         const reply = await chat.generate(prompt, {
-            temperature: 0.15, // stable and precise
-            max_tokens: 350
+            temperature: 0.15,
+            max_tokens: 512,
+            top_p: 0.9
         });
 
         let text = reply.trim();
+        const idx = text.indexOf("1.");
+        if (idx > 0) {
+            text = text.substring(idx);
+        }
 
-        // Remove unwanted prefixes
-        const anchor = "1. Summary";
-        const idx = text.indexOf(anchor);
-        if (idx !== -1) text = text.slice(idx);
-
-        outputEl.textContent = text;
-        setLLMStatus("Explanation ready.");
-
-    } catch (err) {
-        outputEl.textContent = "Error: " + err;
-        setLLMStatus("AI error.");
+        out.textContent = text;
+        status.textContent = "Готово. Можно обновить анализ после изменения данных.";
+    } catch (e) {
+        console.error("Ошибка LLM:", e);
+        status.textContent = "Ошибка при работе локального ИИ.";
+        out.textContent = "";
     } finally {
-        explainBtn.disabled = false;
+        btn.disabled = false;
     }
 }
 
-/* ===========================================================
-   5. Bind button
-=========================================================== */
-if (explainBtn) {
-    explainBtn.addEventListener("click", explainOverviewTrend);
-}
-
-initLLM();
+window.addEventListener("DOMContentLoaded", function () {
+    const btn = document.getElementById("btn-explain-overview");
+    if (btn) {
+        btn.addEventListener("click", function () {
+            explainOverviewTrend();
+        });
+    }
+});

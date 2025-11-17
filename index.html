@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8" />
-    <title>School BI Dashboard</title>
+    <title>Школьная аналитика (офлайн)</title>
 
     <!-- Plotly -->
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
@@ -21,7 +21,7 @@
             background: #2b4c7e;
             color: white;
             padding: 20px;
-            font-size: 24px;
+            font-size: 22px;
             font-weight: bold;
         }
 
@@ -37,7 +37,7 @@
             background: #1f3558;
             color: white;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 15px;
         }
 
         nav button:hover {
@@ -56,24 +56,24 @@
         .filters {
             margin-bottom: 20px;
             background: white;
-            padding: 15px;
+            padding: 12px 15px;
             border-radius: 8px;
         }
 
         .filters label {
             margin-right: 10px;
-            font-weight: bold;
+            font-weight: 600;
         }
 
         .filters select {
             margin-right: 20px;
-            padding: 5px;
+            padding: 4px 6px;
         }
 
         .chart-container {
-            margin-top: 30px;
+            margin-top: 20px;
             background: white;
-            padding: 20px;
+            padding: 18px;
             border-radius: 10px;
         }
 
@@ -81,7 +81,13 @@
             padding: 20px;
         }
 
-        /* Old log styling (kept for safety but hidden from UI) */
+        #status {
+            margin-top: 5px;
+            font-size: 13px;
+            color: #444;
+        }
+
+        /* Лог оставляем, но скрываем от пользователей */
         #log {
             font-family: monospace;
             white-space: pre-wrap;
@@ -93,12 +99,10 @@
             padding: 8px;
             margin: 0 20px 20px;
             border-radius: 6px;
-
-            /* 👇 Hide from teachers */
-            display: none;
+            display: none; /* скрыт */
         }
 
-        /* Simple styling for AI explanation block */
+        /* Блок для LLM */
         #overview-ai-explanation {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             white-space: pre-wrap;
@@ -131,7 +135,41 @@
             margin-bottom: 8px;
         }
 
-        /* Simple table styling for attendance dashboard (and similar) */
+        /* Карточки на главной */
+        .overview-cards {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .overview-card {
+            flex: 1;
+            min-width: 160px;
+            background: #ffffff;
+            border-radius: 10px;
+            padding: 12px 14px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        .overview-card-title {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .overview-card-value {
+            font-size: 22px;
+            font-weight: bold;
+            color: #2b4c7e;
+        }
+
+        .overview-card-sub {
+            font-size: 11px;
+            color: #888;
+            margin-top: 3px;
+        }
+
+        /* Простые таблички (в т.ч. посещаемость) */
         table.simple-table {
             width: 100%;
             border-collapse: collapse;
@@ -161,54 +199,62 @@
 </head>
 
 <body>
-<header>School BI Dashboard</header>
+<header>Школьная аналитика (офлайн)</header>
 
 <div id="upload-area">
-    <p><b>Upload Excel file:</b></p>
+    <p><b>Загрузите Excel-файл с данными школы:</b></p>
     <input type="file" id="excelUpload" />
     <p id="status"></p>
 </div>
 
 <nav>
-    <button onclick="switchPage('overview')">Overview</button>
-    <button onclick="switchPage('by-class')">By Class</button>
-    <button onclick="switchPage('by-subject')">By Subject</button>
-    <button onclick="switchPage('by-teacher')">By Teacher</button>
-    <button onclick="switchPage('attendance')">Attendance</button>
-    <button onclick="switchPage('trends')">Trends</button>
+    <button onclick="switchPage('overview')">Обзор</button>
+    <button onclick="switchPage('by-class')">По классам</button>
+    <button onclick="switchPage('by-subject')">По предметам</button>
+    <button onclick="switchPage('by-teacher')">По учителям</button>
+    <button onclick="switchPage('attendance')">Посещаемость</button>
+    <button onclick="switchPage('trends')">Тренды</button>
 </nav>
 
 <pre id="log"></pre>
 
-<!------------------------- OVERVIEW --------------------------->
+<!------------------------- ОБЗОР --------------------------->
 <div id="overview" class="page active">
-    <h2>Overview</h2>
-    <p>Upload data to view insights. Use the tabs above to explore different dashboards.</p>
+    <h2>Общий обзор</h2>
+    <p>После загрузки файла здесь появится сводка по школе.</p>
 
-    <div class="chart-container" id="chart-overview-school"></div>
+    <div id="overview-cards" class="overview-cards"></div>
 
-    <!-- 🔥 LOCAL LLM INTERPRETATION BLOCK -->
+    <div class="chart-container" id="chart-overview-quality-heatmap"></div>
+
     <div class="chart-container">
-        <h3>AI Interpretation (Local, CPU-only)</h3>
-        <p id="llm-status">Local AI is idle. Upload data and click the button to get an explanation.</p>
-        <button id="btn-explain-overview">Explain school-wide trend</button>
+        <div class="filters">
+            <label>Четверть:</label>
+            <select id="overviewTermSelect"></select>
+        </div>
+        <div id="chart-overview-categories"></div>
+    </div>
+
+    <div class="chart-container">
+        <h3>Пояснение тренда (локальный ИИ)</h3>
+        <p id="llm-status">Локальный ИИ пока не инициализирован.</p>
+        <button id="btn-explain-overview">Объяснить общий тренд</button>
         <pre id="overview-ai-explanation"></pre>
     </div>
 </div>
 
-<!------------------------- BY CLASS --------------------------->
+<!------------------------- ПО КЛАССАМ --------------------------->
 <div id="by-class" class="page">
-
-    <h2>Performance by Class</h2>
+    <h2>Успеваемость по классам</h2>
 
     <div class="filters">
-        <label>Term:</label>
+        <label>Четверть:</label>
         <select id="classTermSelect"></select>
 
-        <label>Subject:</label>
+        <label>Предмет:</label>
         <select id="classSubjectSelect"></select>
 
-        <label>Class:</label>
+        <label>Класс:</label>
         <select id="classClassSelect"></select>
     </div>
 
@@ -218,16 +264,15 @@
     <div class="chart-container" id="chart-class-heatmap"></div>
 </div>
 
-<!------------------------- BY SUBJECT --------------------------->
+<!------------------------- ПО ПРЕДМЕТАМ --------------------------->
 <div id="by-subject" class="page">
-
-    <h2>Performance by Subject</h2>
+    <h2>Успеваемость по предметам</h2>
 
     <div class="filters">
-        <label>Subject:</label>
+        <label>Предмет:</label>
         <select id="subjectSubjectSelect"></select>
 
-        <label>Term:</label>
+        <label>Четверть:</label>
         <select id="subjectTermSelect"></select>
     </div>
 
@@ -237,16 +282,15 @@
     <div class="chart-container" id="chart-subject-heatmap"></div>
 </div>
 
-<!------------------------- BY TEACHER --------------------------->
+<!------------------------- ПО УЧИТЕЛЯМ --------------------------->
 <div id="by-teacher" class="page">
-
-    <h2>Performance by Teacher</h2>
+    <h2>Успеваемость по учителям</h2>
 
     <div class="filters">
-        <label>Teacher:</label>
+        <label>Учитель:</label>
         <select id="teacherSelect"></select>
 
-        <label>Subject:</label>
+        <label>Предмет:</label>
         <select id="teacherSubjectSelect"></select>
     </div>
 
@@ -255,11 +299,11 @@
     <div class="chart-container" id="chart-teacher-trend"></div>
 </div>
 
-<!------------------------- ATTENDANCE --------------------------->
+<!------------------------- ПОСЕЩАЕМОСТЬ --------------------------->
 <div id="attendance" class="page">
     <h2>Посещаемость</h2>
 
-    <!-- 1) Summary by class for a selected term -->
+    <!-- 1) Сводка по классам за выбранную четверть -->
     <div class="chart-container" id="chart-attendance-total">
         <div class="filters">
             <label>Четверть:</label>
@@ -268,7 +312,7 @@
         <div id="attSummaryTableWrapper"></div>
     </div>
 
-    <!-- 2) Details by student for selected class + term -->
+    <!-- 2) Детализация по ученикам выбранного класса и четверти -->
     <div class="chart-container" id="chart-attendance-class">
         <div class="filters">
             <label>Класс:</label>
@@ -280,7 +324,6 @@
         <div id="attDetailTableWrapper"></div>
     </div>
 
-    <!-- Reserved for future attendance visualizations -->
     <div class="chart-container" id="chart-attendance-trend">
         <p style="margin:0; font-size:13px; color:#666;">
             Здесь позже можно добавить графики динамики посещаемости.
@@ -288,15 +331,15 @@
     </div>
 </div>
 
-<!------------------------- TRENDS --------------------------->
+<!------------------------- ТРЕНДЫ --------------------------->
 <div id="trends" class="page">
-    <h2>Longitudinal Trends</h2>
+    <h2>Динамика успеваемости</h2>
+    <div class="chart-container" id="chart-trend-school"></div>
     <div class="chart-container" id="chart-trend-class"></div>
     <div class="chart-container" id="chart-trend-subject"></div>
-    <div class="chart-container" id="chart-trend-school"></div>
 </div>
 
-<!-- JS MODULES -->
+<!-- JS-модули -->
 <script src="utils.js"></script>
 <script src="dashboard_class.js"></script>
 <script src="dashboard_subject.js"></script>
@@ -305,7 +348,7 @@
 <script src="trends.js"></script>
 <script src="main.js"></script>
 
-<!-- ✅ Local CPU-only LLM (WebLLM + Llama-3.2-3B) -->
+<!-- Локальный LLM (с безопасной проверкой наличия webllm) -->
 <script type="module" src="llm_cpu.js"></script>
 
 </body>

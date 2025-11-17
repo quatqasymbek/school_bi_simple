@@ -1,229 +1,247 @@
 // dashboard_subject.js
+console.log("dashboard_subject.js загружен");
+
 window.SBI_Subject = (function () {
     const state = SBI.state;
 
     let subjectSelect, termSelect;
-    let chartClass, chartDist, chartTrend, chartHeat;
+    let chartClass, chartDist, chartTrend, chartHeatmap;
 
     function init() {
         subjectSelect = document.getElementById("subjectSubjectSelect");
-        termSelect = document.getElementById("subjectTermSelect");
+        termSelect    = document.getElementById("subjectTermSelect");
 
-        chartClass = document.getElementById("chart-subject-class");
-        chartDist = document.getElementById("chart-subject-dist");
-        chartTrend = document.getElementById("chart-subject-trend");
-        chartHeat = document.getElementById("chart-subject-heatmap");
+        chartClass    = document.getElementById("chart-subject-class");
+        chartDist     = document.getElementById("chart-subject-dist");
+        chartTrend    = document.getElementById("chart-subject-trend");
+        chartHeatmap  = document.getElementById("chart-subject-heatmap");
 
-        if (subjectSelect) subjectSelect.addEventListener("change", update);
-        if (termSelect) termSelect.addEventListener("change", update);
+        if (subjectSelect) subjectSelect.onchange = update;
+        if (termSelect)    termSelect.onchange    = update;
     }
 
     function populateFilters() {
-        const rows = state.allRows;
+        const rows = state.allRows || [];
         if (!rows.length) return;
 
-        const subjects = state.allSubjects;
-        const terms = state.allTerms;
-
         if (subjectSelect) {
-            subjectSelect.innerHTML = '<option value="all">All subjects</option>';
-            subjects.forEach(s => {
+            subjectSelect.innerHTML = "";
+            const optAll = document.createElement("option");
+            optAll.value = "";
+            optAll.textContent = "Все предметы";
+            subjectSelect.appendChild(optAll);
+            (state.allSubjects || []).forEach(function (s) {
                 const opt = document.createElement("option");
-                opt.value = s; opt.textContent = s;
+                opt.value = s;
+                opt.textContent = s;
                 subjectSelect.appendChild(opt);
             });
         }
 
         if (termSelect) {
-            termSelect.innerHTML = '<option value="all">All terms</option>';
-            terms.forEach(t => {
+            termSelect.innerHTML = "";
+            const optAll = document.createElement("option");
+            optAll.value = "";
+            optAll.textContent = "Все четверти";
+            termSelect.appendChild(optAll);
+            (state.allTerms || []).forEach(function (t) {
                 const opt = document.createElement("option");
-                opt.value = t; opt.textContent = t;
+                opt.value = t;
+                opt.textContent = t;
                 termSelect.appendChild(opt);
             });
         }
     }
 
-    function filteredRows() {
-        const rows = state.allRows;
-        const subj = subjectSelect?.value || "all";
-        const term = termSelect?.value || "all";
+    function filterRows() {
+        const rows = state.allRows || [];
+        if (!rows.length) return [];
 
-        return rows.filter(r =>
-            (subj === "all" || r.subject === subj) &&
-            (term === "all" || r.term === term)
-        );
+        const subjectVal = subjectSelect ? subjectSelect.value : "";
+        const termVal    = termSelect ? termSelect.value : "";
+
+        return rows.filter(function (r) {
+            if (subjectVal && r.subject !== subjectVal) return false;
+            if (termVal && r.term !== termVal) return false;
+            return true;
+        });
     }
 
-    function computeClassAverages(rows) {
-        const groups = SBI.groupBy(
-            rows,
-            r => r.class,
-            r => Number(r.final_percent ?? r.final_5scale ?? NaN)
-        );
-
-        return Object.entries(groups).map(([cls, vals]) => ({
-            class: cls,
-            avg: SBI.mean(vals),
-            std: SBI.std(vals),
-            n: vals.length
-        })).sort((a,b)=>(b.avg ?? 0)-(a.avg ?? 0));
-    }
-
-    function renderClassChart(stats) {
+    function renderByClass(filtered) {
         if (!chartClass) return;
 
-        if (!stats.length) {
+        if (!filtered.length) {
             Plotly.newPlot(chartClass, [], {
-                title: "No data (class averages)",
-                xaxis: { title: "Class" },
-                yaxis: { title: "Average grade" }
+                title: "Нет данных для выбранных фильтров",
+                xaxis: { title: "Класс" },
+                yaxis: { title: "Средний балл" }
             });
             return;
         }
+
+        const grouped = SBI.groupBy(filtered, function (r) { return r.class; }, function (r) { return r; });
+
+        const classes = [];
+        const avg = [];
+        const quality = [];
+
+        Object.keys(grouped).forEach(function (cls) {
+            const rows = grouped[cls];
+            classes.push(cls);
+            avg.push(SBI.mean(rows.map(function (r) {
+                return Number(r.final_percent ?? r.final_5scale ?? NaN);
+            }).filter(function (v) { return !Number.isNaN(v); })));
+            quality.push(SBI.knowledgeRatio(rows) || 0);
+        });
 
         Plotly.newPlot(chartClass, [{
-            x: stats.map(s => s.class),
-            y: stats.map(s => s.avg),
-            text: stats.map(s => `N=${s.n}, σ≈${s.std?.toFixed(1) ?? "NA"}`),
-            type: "bar"
+            x: classes,
+            y: avg,
+            type: "bar",
+            customdata: quality,
+            hovertemplate:
+                "Класс: %{x}<br>" +
+                "Средний балл: %{y:.2f}<br>" +
+                "Качество знаний: %{customdata:.0%}<extra></extra>"
         }], {
-            title: "Average grade by class (subject filter)",
-            xaxis: { title: "Class" },
-            yaxis: { title: "Average grade" }
+            title: "Средний балл по классам (для выбранного предмета)",
+            xaxis: { title: "Класс" },
+            yaxis: { title: "Средний балл" }
         });
     }
 
-    function renderDistribution(rows) {
+    function renderDistribution(filtered) {
         if (!chartDist) return;
 
-        const vals = rows
-            .map(r => Number(r.final_percent ?? r.final_5scale ?? NaN))
-            .filter(v => !Number.isNaN(v));
-
-        if (!vals.length) {
+        if (!filtered.length) {
             Plotly.newPlot(chartDist, [], {
-                title: "No data (distribution)",
-                xaxis: { title: "Grade" },
-                yaxis: { title: "Students" }
+                title: "Нет данных для распределения",
+                xaxis: { title: "Итоговая оценка" },
+                yaxis: { title: "Количество" }
             });
             return;
         }
 
+        const values = filtered.map(function (r) {
+            return Number(r.final_percent ?? r.final_5scale ?? NaN);
+        }).filter(function (v) { return !Number.isNaN(v); });
+
         Plotly.newPlot(chartDist, [{
-            x: vals,
-            type: "histogram"
+            x: values,
+            type: "histogram",
+            nbinsx: 20
         }], {
-            title: "Distribution of grades (selected subject/term)",
-            xaxis: { title: "Grade" },
-            yaxis: { title: "Students" }
+            title: "Распределение оценок по выбранному предмету",
+            xaxis: { title: "Процент / балл" },
+            yaxis: { title: "Количество" }
         });
     }
 
-    function computeTrend(subj) {
-        const rows = state.allRows;
-        const terms = state.allTerms;
-        if (!subj || subj === "all") return [];
-
-        const grouped = SBI.groupBy(
-            rows.filter(r => r.subject === subj),
-            r => r.term,
-            r => Number(r.final_percent ?? r.final_5scale ?? NaN)
-        );
-
-        return terms.map(t => ({
-            term: t,
-            avg: SBI.mean(grouped[t] || [])
-        }));
-    }
-
-    function renderTrend(subj) {
+    function renderTrend() {
         if (!chartTrend) return;
 
-        if (!subj || subj === "all") {
+        const subjectVal = subjectSelect ? subjectSelect.value : "";
+        if (!subjectVal) {
             Plotly.newPlot(chartTrend, [], {
-                title: "Select a subject to see trend",
-                xaxis: { title: "Term" },
-                yaxis: { title: "Average grade" }
+                title: "Выберите предмет для просмотра динамики",
+                xaxis: { title: "Четверть" },
+                yaxis: { title: "Средний балл" }
             });
             return;
         }
 
-        const trend = computeTrend(subj);
-        const valid = trend.filter(p => p.avg !== null);
+        const rows = (state.allRows || []).filter(function (r) {
+            return r.subject === subjectVal;
+        });
 
-        if (!valid.length) {
-            Plotly.newPlot(chartTrend, [], {
-                title: "No trend data for this subject",
-                xaxis: { title: "Term" },
-                yaxis: { title: "Average grade" }
-            });
-            return;
-        }
+        const byTerm = SBI.groupBy(rows, function (r) { return r.term; }, function (r) {
+            return Number(r.final_percent ?? r.final_5scale ?? NaN);
+        });
+
+        const terms = (state.allTerms || []).slice();
+        const avg = terms.map(function (t) {
+            return SBI.mean(byTerm[t] || []);
+        });
 
         Plotly.newPlot(chartTrend, [{
-            x: trend.map(p => p.term),
-            y: trend.map(p => p.avg),
+            x: terms,
+            y: avg,
             mode: "lines+markers"
         }], {
-            title: `Trend across terms (subject: ${subj})`,
-            xaxis: { title: "Term" },
-            yaxis: { title: "Average grade" }
+            title: "Динамика по предмету: " + subjectVal,
+            xaxis: { title: "Четверть" },
+            yaxis: { title: "Средний балл" }
         });
     }
 
     function renderHeatmap() {
-        if (!chartHeat) return;
-        const rows = state.allRows;
-        const terms = state.allTerms;
-        const subjects = state.allSubjects;
+        if (!chartHeatmap) return;
 
-        const matrix = subjects.map(subj => {
-            return terms.map(term => {
-                const vals = rows
-                    .filter(r => r.subject === subj && r.term === term)
-                    .map(r => Number(r.final_percent ?? r.final_5scale ?? NaN))
-                    .filter(v => !Number.isNaN(v));
-                return SBI.mean(vals);
+        const rows = state.allRows || [];
+        if (!rows.length) {
+            Plotly.newPlot(chartHeatmap, [], {
+                title: "Нет данных для отображения",
+                xaxis: { title: "Четверть" },
+                yaxis: { title: "Предмет" }
             });
-        });
+            return;
+        }
 
-        Plotly.newPlot(chartHeat, [{
-            z: matrix,
+        const terms = state.allTerms || [];
+        const subjects = state.allSubjects || [];
+
+        const z = [];
+        for (let si = 0; si < subjects.length; si++) {
+            const subj = subjects[si];
+            const rowZ = [];
+            for (let ti = 0; ti < terms.length; ti++) {
+                const t = terms[ti];
+                const subset = rows.filter(function (r) {
+                    return r.subject === subj && r.term === t;
+                });
+                const avg = SBI.mean(subset.map(function (r) {
+                    return Number(r.final_percent ?? r.final_5scale ?? NaN);
+                }).filter(function (v) { return !Number.isNaN(v); }));
+                rowZ.push(avg != null ? avg : null);
+            }
+            z.push(rowZ);
+        }
+
+        Plotly.newPlot(chartHeatmap, [{
+            z: z,
             x: terms,
             y: subjects,
             type: "heatmap",
-            colorscale: "Viridis"
+            colorscale: "RdYlGn"
         }], {
-            title: "Subject × Term heatmap (average grade)",
-            xaxis: { title: "Term" },
-            yaxis: { title: "Subject" }
+            title: "Средний балл по предметам и четвертям",
+            xaxis: { title: "Четверть" },
+            yaxis: { title: "Предмет" }
         });
     }
 
     function update() {
-        const rows = filteredRows();
-        SBI.log(`By Subject → filtered rows: ${rows.length}`);
-
-        const stats = computeClassAverages(rows);
-        renderClassChart(stats);
-        renderDistribution(rows);
-
-        const subj = subjectSelect?.value || "all";
-        renderTrend(subj);
+        const filtered = filterRows();
+        SBI.log("По предметам → отфильтровано строк: " + filtered.length);
+        renderByClass(filtered);
+        renderDistribution(filtered);
+        renderTrend();
         renderHeatmap();
     }
 
     function onDataLoaded() {
+        const rows = state.allRows || [];
+        if (!rows.length) {
+            SBI.log("Дашборд по предметам: нет данных.");
+            return;
+        }
         populateFilters();
         update();
     }
 
+    init();
+
     return {
-        init,
-        onDataLoaded,
-        update
+        onDataLoaded: onDataLoaded
     };
 })();
-
-SBI_Subject.init();

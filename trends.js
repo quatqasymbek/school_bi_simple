@@ -1,131 +1,135 @@
 // trends.js
+console.log("trends.js загружен");
+
 window.SBI_Trends = (function () {
     const state = SBI.state;
 
-    let chartClass, chartSubject, chartSchool;
+    let chartSchool, chartClass, chartSubject;
 
     function init() {
-        chartClass = document.getElementById("chart-trend-class");
+        chartSchool  = document.getElementById("chart-trend-school");
+        chartClass   = document.getElementById("chart-trend-class");
         chartSubject = document.getElementById("chart-trend-subject");
-        chartSchool = document.getElementById("chart-trend-school");
-    }
-
-    function computeSchoolTrend() {
-        const rows = state.allRows;
-        const terms = state.allTerms;
-
-        const byTerm = SBI.groupBy(
-            rows,
-            r => r.term,
-            r => Number(r.final_percent ?? r.final_5scale ?? NaN)
-        );
-
-        return terms.map(t => ({
-            term: t,
-            avg: SBI.mean(byTerm[t] || [])
-        }));
     }
 
     function renderSchoolTrend() {
         if (!chartSchool) return;
-
-        const trend = computeSchoolTrend();
-        const valid = trend.filter(p => p.avg !== null);
-
-        if (!valid.length) {
+        const rows = state.allRows || [];
+        if (!rows.length) {
             Plotly.newPlot(chartSchool, [], {
-                title: "No data for school trend",
-                xaxis: { title: "Term" },
-                yaxis: { title: "Average grade" }
+                title: "Нет данных по школе",
+                xaxis: { title: "Четверть" },
+                yaxis: { title: "Средний балл" }
             });
             return;
         }
 
+        const byTerm = SBI.groupBy(rows, function (r) { return r.term; }, function (r) {
+            return Number(r.final_percent ?? r.final_5scale ?? NaN);
+        });
+
+        const terms = state.allTerms || [];
+        const avg = terms.map(function (t) {
+            return SBI.mean(byTerm[t] || []);
+        });
+
         Plotly.newPlot(chartSchool, [{
-            x: trend.map(p => p.term),
-            y: trend.map(p => p.avg),
+            x: terms,
+            y: avg,
             mode: "lines+markers"
         }], {
-            title: "School-wide average grade by term",
-            xaxis: { title: "Term" },
-            yaxis: { title: "Average grade" }
+            title: "Средний балл по школе (по четвертям)",
+            xaxis: { title: "Четверть" },
+            yaxis: { title: "Средний балл" }
         });
     }
 
-    function renderClassTrendHeatmap() {
+    function renderClassHeatmap() {
         if (!chartClass) return;
+        const rows = state.allRows || [];
+        if (!rows.length) return;
 
-        const rows = state.allRows;
-        const terms = state.allTerms;
-        const classes = state.allClasses;
+        const classes = state.allClasses || [];
+        const terms = state.allTerms || [];
 
-        const matrix = classes.map(cls => {
-            return terms.map(term => {
-                const vals = rows
-                    .filter(r => r.class === cls && r.term === term)
-                    .map(r => Number(r.final_percent ?? r.final_5scale ?? NaN))
-                    .filter(v => !Number.isNaN(v));
-                return SBI.mean(vals);
+        const z = [];
+        classes.forEach(function (cls) {
+            const rowZ = [];
+            terms.forEach(function (t) {
+                const subset = rows.filter(function (r) {
+                    return r.class === cls && r.term === t;
+                });
+                const avg = SBI.mean(subset.map(function (r) {
+                    return Number(r.final_percent ?? r.final_5scale ?? NaN);
+                }).filter(function (v) { return !Number.isNaN(v); }));
+                rowZ.push(avg != null ? avg : null);
             });
+            z.push(rowZ);
         });
 
         Plotly.newPlot(chartClass, [{
-            z: matrix,
+            z: z,
             x: terms,
             y: classes,
             type: "heatmap",
-            colorscale: "Viridis"
+            colorscale: "Blues"
         }], {
-            title: "Trend heatmap: Class × Term",
-            xaxis: { title: "Term" },
-            yaxis: { title: "Class" }
+            title: "Средний балл по классам и четвертям",
+            xaxis: { title: "Четверть" },
+            yaxis: { title: "Класс" }
         });
     }
 
-    function renderSubjectTrendHeatmap() {
+    function renderSubjectHeatmap() {
         if (!chartSubject) return;
+        const rows = state.allRows || [];
+        if (!rows.length) return;
 
-        const rows = state.allRows;
-        const terms = state.allTerms;
-        const subjects = state.allSubjects;
+        const subjects = state.allSubjects || [];
+        const terms = state.allTerms || [];
 
-        const matrix = subjects.map(subj => {
-            return terms.map(term => {
-                const vals = rows
-                    .filter(r => r.subject === subj && r.term === term)
-                    .map(r => Number(r.final_percent ?? r.final_5scale ?? NaN))
-                    .filter(v => !Number.isNaN(v));
-                return SBI.mean(vals);
+        const z = [];
+        subjects.forEach(function (subj) {
+            const rowZ = [];
+            terms.forEach(function (t) {
+                const subset = rows.filter(function (r) {
+                    return r.subject === subj && r.term === t;
+                });
+                const avg = SBI.mean(subset.map(function (r) {
+                    return Number(r.final_percent ?? r.final_5scale ?? NaN);
+                }).filter(function (v) { return !Number.isNaN(v); }));
+                rowZ.push(avg != null ? avg : null);
             });
+            z.push(rowZ);
         });
 
         Plotly.newPlot(chartSubject, [{
-            z: matrix,
+            z: z,
             x: terms,
             y: subjects,
             type: "heatmap",
-            colorscale: "Viridis"
+            colorscale: "RdYlGn"
         }], {
-            title: "Trend heatmap: Subject × Term",
-            xaxis: { title: "Term" },
-            yaxis: { title: "Subject" }
+            title: "Средний балл по предметам и четвертям",
+            xaxis: { title: "Четверть" },
+            yaxis: { title: "Предмет" }
         });
     }
 
     function onDataLoaded() {
-        if (!state.allRows.length) {
-            SBI.log("Trends dashboard: no data.");
+        const rows = state.allRows || [];
+        if (!rows.length) {
+            SBI.log("Дашборд трендов: нет данных.");
             return;
         }
         renderSchoolTrend();
-        renderClassTrendHeatmap();
-        renderSubjectTrendHeatmap();
+        renderClassHeatmap();
+        renderSubjectHeatmap();
     }
 
+    init();
+
     return {
-        init,
-        onDataLoaded
+        onDataLoaded: onDataLoaded
     };
 })();
-
-SBI_Trends.init();

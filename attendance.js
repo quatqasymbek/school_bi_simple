@@ -1,5 +1,5 @@
 // attendance.js
-console.log("attendance.js loaded");
+console.log("attendance.js загружен");
 
 window.SBI_Attendance = (function () {
     const state = SBI.state;
@@ -17,24 +17,18 @@ window.SBI_Attendance = (function () {
             document.getElementById("chart-attendance-class");
 
         termSummarySelect = document.getElementById("attTermSummary");
-        termDetailSelect = document.getElementById("attTermDetail");
+        termDetailSelect  = document.getElementById("attTermDetail");
         classDetailSelect = document.getElementById("attClassDetail");
 
-        if (termSummarySelect) termSummarySelect.addEventListener("change", renderSummary);
-        if (termDetailSelect) termDetailSelect.addEventListener("change", renderDetail);
-        if (classDetailSelect) classDetailSelect.addEventListener("change", renderDetail);
+        if (termSummarySelect) termSummarySelect.onchange = renderSummary;
+        if (termDetailSelect)  termDetailSelect.onchange  = renderDetail;
+        if (classDetailSelect) classDetailSelect.onchange = renderDetail;
     }
 
-    function fillSelect(select, values, withAllLabel) {
+    function fillSelect(select, values) {
         if (!select) return;
         select.innerHTML = "";
-        if (withAllLabel) {
-            const optAll = document.createElement("option");
-            optAll.value = "all";
-            optAll.textContent = withAllLabel;
-            select.appendChild(optAll);
-        }
-        values.forEach(v => {
+        values.forEach(function (v) {
             const opt = document.createElement("option");
             opt.value = v;
             opt.textContent = v;
@@ -52,58 +46,60 @@ window.SBI_Attendance = (function () {
 
     function formatClassLabel(cls) {
         if (!cls) return "";
-        return String(cls).replace(/^K-/, ""); // K-7AE -> 7AE
+        return String(cls).replace(/^K-/, "");
     }
 
-    /* ------------ 1) SUMMARY (BY CLASS) ------------ */
-
+    // 1) Сводка по классам
     function computeClassSummary(rows, termFilter) {
-        const filtered = rows.filter(r => {
+        const filtered = rows.filter(function (r) {
             const t = getTermValue(r);
-            return !termFilter || termFilter === "all" || t === termFilter;
+            return !termFilter || t === termFilter;
         });
 
-        const groups = SBI.groupBy(
-            filtered,
-            r => getClassValue(r),
-            r => r
-        );
+        const groups = SBI.groupBy(filtered, function (r) {
+            return getClassValue(r);
+        }, function (r) { return r; });
 
-        const result = Object.entries(groups).map(([cls, list]) => {
+        const result = Object.keys(groups).map(function (clsId) {
+            const list = groups[clsId];
+
+            const ratiosPresent = [];
+            const ratiosAbsent = [];
+            const ratiosLate = [];
             let totalLessonsSum = 0;
-            const presentRatio = [];
-            const absentRatio = [];
-            const lateRatio = [];
 
-            list.forEach(r => {
+            list.forEach(function (r) {
                 const total = Number(r.total_classes ?? 0);
                 const present = Number(r.present_classes ?? 0);
                 const exc = Number(r.absent_excused_classes ?? 0);
-                const unexc = Number(r.absent_unexcused_classes ?? 0);
+                const unexc = Number(r.absent_unexc_classes ?? 0);
                 const late = Number(r.late_classes ?? 0);
 
                 const denom = total || (present + exc + unexc + late);
                 if (!denom) return;
 
                 totalLessonsSum += total || denom;
-
-                presentRatio.push(present / denom);
-                absentRatio.push((exc + unexc) / denom);
-                lateRatio.push(late / denom);
+                ratiosPresent.push(present / denom);
+                ratiosAbsent.push((exc + unexc) / denom);
+                ratiosLate.push(late / denom);
             });
 
-            const presentPct = (SBI.mean(presentRatio) || 0) * 100;
-            const absentPct = (SBI.mean(absentRatio) || 0) * 100;
-            const latePct = (SBI.mean(lateRatio) || 0) * 100;
+            const presentPct = (SBI.mean(ratiosPresent) || 0) * 100;
+            const absentPct  = (SBI.mean(ratiosAbsent)  || 0) * 100;
+            const latePct    = (SBI.mean(ratiosLate)    || 0) * 100;
 
             return {
-                classId: cls,
+                classId: clsId,
                 totalClasses: totalLessonsSum,
-                presentPct,
-                absentPct,
-                latePct
+                presentPct: presentPct,
+                absentPct: absentPct,
+                latePct: latePct
             };
-        }).filter(r => r.classId).sort((a, b) => b.presentPct - a.presentPct);
+        }).filter(function (r) {
+            return r.classId;
+        }).sort(function (a, b) {
+            return b.presentPct - a.presentPct;
+        });
 
         return result;
     }
@@ -111,14 +107,13 @@ window.SBI_Attendance = (function () {
     function renderSummary() {
         if (!summaryWrapper) return;
         const rows = state.attendanceRows || [];
-        summaryWrapper.innerHTML = "";
 
         if (!rows.length) {
-            summaryWrapper.innerHTML = "<p>Нет данных о посещаемости.</p>";
+            summaryWrapper.innerHTML = "<p>В файле Excel нет листа «Посещаемость» или он пустой.</p>";
             return;
         }
 
-        const term = termSummarySelect?.value || null;
+        const term = termSummarySelect ? termSummarySelect.value : "";
         const summary = computeClassSummary(rows, term);
 
         const table = document.createElement("table");
@@ -128,7 +123,7 @@ window.SBI_Attendance = (function () {
         thead.innerHTML = `
             <tr>
                 <th>Класс</th>
-                <th>Всего занятий</th>
+                <th>Всего уроков</th>
                 <th>% присутствий</th>
                 <th>% отсутствий</th>
                 <th>% опозданий</th>
@@ -137,7 +132,7 @@ window.SBI_Attendance = (function () {
         table.appendChild(thead);
 
         const tbody = document.createElement("tbody");
-        summary.forEach(row => {
+        summary.forEach(function (row) {
             const tr = document.createElement("tr");
             tr.innerHTML = `
                 <td>${formatClassLabel(row.classId)}</td>
@@ -148,35 +143,35 @@ window.SBI_Attendance = (function () {
             `;
             tbody.appendChild(tr);
         });
-
         table.appendChild(tbody);
+
+        summaryWrapper.innerHTML = "";
         summaryWrapper.appendChild(table);
     }
 
-    /* ------------ 2) DETAILS (BY STUDENT) ------------ */
-
+    // 2) Детализация по ученикам
     function computeStudentDetails(rows, classFilter, termFilter) {
-        const filtered = rows.filter(r => {
+        const filtered = rows.filter(function (r) {
             const cls = getClassValue(r);
-            const t = getTermValue(r);
-            return (!classFilter || cls === classFilter) &&
-                   (!termFilter || t === termFilter);
+            const t   = getTermValue(r);
+            if (classFilter && cls !== classFilter) return false;
+            if (termFilter  && t   !== termFilter)  return false;
+            return true;
         });
 
-        const byStudent = SBI.groupBy(
-            filtered,
-            r => r.student_id || "",
-            r => r
-        );
+        const byStudent = SBI.groupBy(filtered, function (r) {
+            return r.student_id || "";
+        }, function (r) { return r; });
 
-        const result = Object.entries(byStudent).map(([sid, list]) => {
+        const result = Object.keys(byStudent).map(function (sid) {
+            const list = byStudent[sid];
             let total = 0;
             let present = 0;
             let exc = 0;
             let unexc = 0;
             let late = 0;
 
-            list.forEach(r => {
+            list.forEach(function (r) {
                 const t = Number(r.total_classes ?? 0);
                 const p = Number(r.present_classes ?? 0);
                 const e = Number(r.absent_excused_classes ?? 0);
@@ -185,25 +180,29 @@ window.SBI_Attendance = (function () {
 
                 const denom = t || (p + e + u + l);
 
-                total += t || denom;
+                total   += t || denom;
                 present += p;
-                exc += e;
-                unexc += u;
-                late += l;
+                exc     += e;
+                unexc   += u;
+                late    += l;
             });
 
-            const name = (list[0]?.student_name || "").trim();
+            const name = (list[0] && list[0].student_name || "").trim();
 
             return {
                 studentId: sid,
                 studentName: name || sid,
-                total,
-                present,
-                late,
-                exc,
-                unexc
+                total: total,
+                present: present,
+                late: late,
+                exc: exc,
+                unexc: unexc
             };
-        }).filter(r => r.studentId).sort((a, b) => b.present - a.present); // sort by present desc
+        }).filter(function (r) {
+            return r.studentId;
+        }).sort(function (a, b) {
+            return b.present - a.present;
+        });
 
         return result;
     }
@@ -211,15 +210,14 @@ window.SBI_Attendance = (function () {
     function renderDetail() {
         if (!detailWrapper) return;
         const rows = state.attendanceRows || [];
-        detailWrapper.innerHTML = "";
 
         if (!rows.length) {
             detailWrapper.innerHTML = "<p>Нет данных о посещаемости.</p>";
             return;
         }
 
-        const cls = classDetailSelect?.value || "";
-        const term = termDetailSelect?.value || "";
+        const cls  = classDetailSelect ? classDetailSelect.value : "";
+        const term = termDetailSelect  ? termDetailSelect.value  : "";
 
         if (!cls || !term) {
             detailWrapper.innerHTML = "<p>Выберите класс и четверть.</p>";
@@ -235,7 +233,7 @@ window.SBI_Attendance = (function () {
         thead.innerHTML = `
             <tr>
                 <th>Ученик</th>
-                <th>Всего занятий</th>
+                <th>Всего уроков</th>
                 <th>Присутствий</th>
                 <th>Опозданий</th>
                 <th>Пропуски (уваж.)</th>
@@ -245,7 +243,7 @@ window.SBI_Attendance = (function () {
         table.appendChild(thead);
 
         const tbody = document.createElement("tbody");
-        details.forEach(row => {
+        details.forEach(function (row) {
             const tr = document.createElement("tr");
             tr.innerHTML = `
                 <td>${row.studentName}</td>
@@ -259,20 +257,18 @@ window.SBI_Attendance = (function () {
         });
 
         table.appendChild(tbody);
+        detailWrapper.innerHTML = "";
         detailWrapper.appendChild(table);
     }
 
-    /* ------------ PUBLIC HOOK ------------ */
-
     function onDataLoaded() {
         const rows = state.attendanceRows || [];
-
         if (!rows.length) {
             const container = document.getElementById("chart-attendance-total");
             if (container) {
                 container.innerHTML = "<p>В файле Excel нет листа «Посещаемость» или он пустой.</p>";
             }
-            SBI.log("Attendance dashboard: no data.");
+            SBI.log("Дашборд посещаемости: нет данных.");
             return;
         }
 
@@ -286,10 +282,10 @@ window.SBI_Attendance = (function () {
         fillSelect(classDetailSelect, classes);
 
         if (terms.length) {
-            if (termSummarySelect) termSummarySelect.value = terms[0];
-            if (termDetailSelect) termDetailSelect.value = terms[0];
+            termSummarySelect.value = terms[0];
+            termDetailSelect.value  = terms[0];
         }
-        if (classes.length && classDetailSelect) {
+        if (classes.length) {
             classDetailSelect.value = classes[0];
         }
 
@@ -297,10 +293,9 @@ window.SBI_Attendance = (function () {
         renderDetail();
     }
 
+    init();
+
     return {
-        init,
-        onDataLoaded
+        onDataLoaded: onDataLoaded
     };
 })();
-
-SBI_Attendance.init();

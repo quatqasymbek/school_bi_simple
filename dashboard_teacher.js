@@ -34,19 +34,21 @@ window.SBI_Teacher = (function () {
 
     function populateTeachers() {
         if (!teacherSelect) return;
-        const teachers = state.allTeachers || [];
+        const teachers = state.allTeachers || state.teachers || [];
         teacherSelect.innerHTML = "";
         teachers.forEach(function (t) {
+            const id = t.teacher_id;
+            if (!id) return;
             const opt = document.createElement("option");
-            opt.value = t.teacher_id;
-            opt.textContent = t.teacher_name;
+            opt.value = id;
+            opt.textContent = t.teacher_name || id;
             teacherSelect.appendChild(opt);
         });
     }
 
     function subjectsForTeacher(teacherId) {
         buildAssignmentIndex();
-        const assignments = state.assignByTeacher[teacherId] || [];
+        const assignments = (state.assignByTeacher && state.assignByTeacher[teacherId]) || [];
         const idxSubj = state.idx_subjects || {};
         const set = {};
         assignments.forEach(function (a) {
@@ -77,6 +79,7 @@ window.SBI_Teacher = (function () {
 
     function filterRowsForTeacher(teacherId, subjectId) {
         const rows = state.allRows || [];
+        buildAssignmentIndex();
         const assignments = state.assignByTeacher[teacherId] || [];
 
         const keySet = {};
@@ -107,13 +110,13 @@ window.SBI_Teacher = (function () {
             Plotly.newPlot(chartPerf, [], {
                 title: "Нет данных по выбранному учителю / предмету",
                 xaxis: { title: "Четверть" },
-                yaxis: { title: "Итоговая оценка" }
+                yaxis: { title: "Итоговая оценка (1–5)" }
             });
             return;
         }
 
         const yVals = rows.map(function (r) {
-            return Number(r.final_percent ?? r.final_5scale ?? NaN);
+            return Number(r.final_5scale ?? r.final_percent ?? NaN);
         }).filter(function (v) { return !Number.isNaN(v); });
 
         Plotly.newPlot(chartPerf, [{
@@ -121,9 +124,9 @@ window.SBI_Teacher = (function () {
             y: yVals,
             type: "box"
         }], {
-            title: teacherName + " — " + subjectName + " (распределение оценок)",
+            title: teacherName + " — " + subjectName + " (распределение итоговых оценок)",
             xaxis: { title: "Четверть" },
-            yaxis: { title: "Итоговая оценка" }
+            yaxis: { title: "Итоговая оценка (1–5)" }
         });
     }
 
@@ -164,13 +167,13 @@ window.SBI_Teacher = (function () {
             Plotly.newPlot(chartTrend, [], {
                 title: "Нет данных для отображения динамики",
                 xaxis: { title: "Четверть" },
-                yaxis: { title: "Средний балл" }
+                yaxis: { title: "Средний балл (1–5)" }
             });
             return;
         }
 
         const byTerm = SBI.groupBy(rows, function (r) { return r.term; }, function (r) {
-            return Number(r.final_percent ?? r.final_5scale ?? NaN);
+            return Number(r.final_5scale ?? r.final_percent ?? NaN);
         });
 
         const terms = Object.keys(byTerm);
@@ -183,7 +186,7 @@ window.SBI_Teacher = (function () {
         }], {
             title: "Динамика среднего балла по четвертям",
             xaxis: { title: "Четверть" },
-            yaxis: { title: "Средний балл" }
+            yaxis: { title: "Средний балл (1–5)" }
         });
     }
 
@@ -201,10 +204,10 @@ window.SBI_Teacher = (function () {
         const subjectId = subjectSelect.value;
         if (!teacherId || !subjectId) return;
 
-        const teacher = (state.allTeachers || []).find(function (t) {
-            return t.teacher_id === teacherId;
+        const teacher = (state.allTeachers || state.teachers || []).find(function (t) {
+            return String(t.teacher_id) === String(teacherId);
         });
-        const teacherName = teacher ? teacher.teacher_name : teacherId;
+        const teacherName = teacher ? (teacher.teacher_name || teacherId) : teacherId;
 
         const subjList = subjectsForTeacher(teacherId);
         const subjObj = subjList.find(function (s) { return s.sid === subjectId; });

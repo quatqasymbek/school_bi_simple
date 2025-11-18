@@ -1,5 +1,5 @@
 // ==========================================================
-//               MAIN.JS — ОБНОВЛЁН (фикс качества знаний)
+//               MAIN.JS — ИСПРАВЛЕН
 // ==========================================================
 
 console.log("JS загружен: main.js");
@@ -36,8 +36,22 @@ function buildClassLabel(row) {
     return String(row.class_id || `K-${grade}${section || ""}`).trim();
 }
 
-const toNumber = SBI.toNumber;
+function extractGradeFromClassRow(cls) {
+    // если есть явное поле — используем его
+    let g = cls.grade ?? cls.grade_num ?? cls.grade_number;
+    if (g != null) return g;
 
+    // иначе пробуем вытащить первую цифру/число из class_name
+    const name = cls.class_name || cls.name || "";
+    const m = String(name).match(/\d+/);
+    if (m) {
+        const num = parseInt(m[0], 10);
+        if (!Number.isNaN(num)) return num;
+    }
+    return null;
+}
+
+const toNumber = SBI.toNumber;
 
 /* ------------------------------------------------------
    ОБРАБОТКА ЗАГРУЗКИ EXCEL
@@ -119,13 +133,11 @@ if (fileInput) {
             if (id) idx_teachers[id] = r;
         });
 
-        // складываем индексы в state
         state.idx_students = idx_students;
         state.idx_classes  = idx_classes;
         state.idx_subjects = idx_subjects;
         state.idx_terms    = idx_terms;
         state.idx_teachers = idx_teachers;
-
 
         /* ------------------------------------------------------
            ЧТЕНИЕ ВЕСОВ
@@ -166,7 +178,6 @@ if (fileInput) {
             };
         }
 
-
         /* ------------------------------------------------------
            ШКАЛА 5-БАЛЛЬНОЙ ОЦЕНКИ
         ------------------------------------------------------ */
@@ -196,21 +207,19 @@ if (fileInput) {
             return result;
         }
 
-        // ✅ НОВОЕ: правильный расчёт качества знаний
         function computeKnowledgeQuality(final_5scale) {
             const g = toNumber(final_5scale);
-            if (g == null) return null;   // нет оценки — не учитываем
-            return g >= 4 ? 1 : 0;        // 4–5 → 1, 2–3 → 0
+            if (g == null) return null;
+            return g >= 4 ? 1 : 0;
         }
 
-
         /* ------------------------------------------------------
-           ГЛАВНОЕ: ВЫЧИСЛЕНИЕ ЧЕТВЕРТНЫХ ОЦЕНОК
+           ВЫЧИСЛЕНИЕ ЧЕТВЕРТНЫХ ОЦЕНОК
         ------------------------------------------------------ */
 
         const analyticRows = [];
 
-        // === ВАРИАНТ 1: Лист ИТОГ_ЧЕТВЕРТИ есть ===
+        // === ВАРИАНТ 1: есть ИТОГ_ЧЕТВЕРТИ ===
         if (termResultsRaw.length) {
             SBI.log("Используем лист ИТОГ_ЧЕТВЕРТИ.");
 
@@ -230,10 +239,16 @@ if (fileInput) {
 
                 const student_name = buildPersonName(student);
                 const class_name   = buildClassLabel(cls);
-                const subject_name = String(subj.subject_name || subj.name || subject_id).trim();
-                const grade_num    = cls.grade ?? cls.grade_num ?? cls.grade_number ?? null;
+                const grade_num    = extractGradeFromClassRow(cls);
 
-                const final_percent = toNumber(r.final_percent);
+                const subject_name = String(subj.subject_name || subj.name || subject_id).trim();
+
+                let final_percent = toNumber(r.final_percent);
+                if (final_percent != null && final_percent <= 1) {
+                    // 0,81 → 81
+                    final_percent = final_percent * 100;
+                }
+
                 const final_5scale  = toNumber(r.final_5pt) ?? mapPercentTo5pt(final_percent);
                 const knowledge_quality = computeKnowledgeQuality(final_5scale);
 
@@ -252,11 +267,8 @@ if (fileInput) {
                     knowledge_quality
                 });
             });
-        }
-
-        // === ВАРИАНТ 2: Считаем из ОЦЕНКИ ===
-        else {
-
+        } else {
+            // === ВАРИАНТ 2: считаем из ОЦЕНКИ ===
             SBI.log("Вычисляем четвертные оценки из ОЦЕНКИ.");
 
             const byTypeKey = {}; // student|subject|term|work_type → []
@@ -273,20 +285,17 @@ if (fileInput) {
                 const key = `${student_id}|${subject_id}|${term_id}|${work_type}`;
                 if (!byTypeKey[key]) byTypeKey[key] = [];
 
-                // === ПАРСИНГ ОЦЕНКИ В ПРОЦЕНТ ===
                 let pct = null;
 
                 if (r.percent != null) {
-                    let frac = toNumber(r.percent);  // может быть 0.81 или 81
+                    let frac = toNumber(r.percent); // 0.81 или 81
                     if (frac != null) {
-                        if (frac <= 1) frac = frac * 100; // 0.81 → 81
+                        if (frac <= 1) frac = frac * 100;
                         pct = frac;
                     }
-                }
-                else if (r.score_percent != null) {
+                } else if (r.score_percent != null) {
                     pct = toNumber(r.score_percent);
-                }
-                else if (r.score != null && r.max_score != null) {
+                } else if (r.score != null && r.max_score != null) {
                     const s = toNumber(r.score);
                     const m = toNumber(r.max_score);
                     if (s != null && m) pct = (s / m) * 100;
@@ -295,7 +304,6 @@ if (fileInput) {
                 if (pct != null) byTypeKey[key].push(pct);
             });
 
-            // Группировка student|subject|term
             const perPST = {};
 
             Object.keys(byTypeKey).forEach(key => {
@@ -311,16 +319,10 @@ if (fileInput) {
                     };
                 }
 
-                // === НОРМАЛИЗАЦИЯ work_type ===
                 let t = rawType.toString().trim().toUpperCase();
-
                 if (t === "ФО")  t = "FO";
                 if (t === "СОР") t = "SOR";
                 if (t === "СОЧ") t = "SOCH";
-
-                if (t === "FO")   t = "FO";
-                if (t === "SOR")  t = "SOR";
-                if (t === "SOCH") t = "SOCH";
 
                 const arr = byTypeKey[key];
                 const avg = SBI.mean(arr);
@@ -328,7 +330,6 @@ if (fileInput) {
                 perPST[pstKey].typeAvgs[t] = avg;
             });
 
-            // === Финальный расчёт четвертной оценки ===
             Object.keys(perPST).forEach(pstKey => {
 
                 const item = perPST[pstKey];
@@ -337,8 +338,8 @@ if (fileInput) {
                 const weights = getWeights(subject_id, term_id);
 
                 const parts = [];
-                if (typeAvgs.FO != null)   parts.push({ avg: typeAvgs.FO,   w: weights.w_fo });
-                if (typeAvgs.SOR != null)  parts.push({ avg: typeAvgs.SOR,  w: weights.w_sor });
+                if (typeAvgs.FO   != null) parts.push({ avg: typeAvgs.FO,   w: weights.w_fo });
+                if (typeAvgs.SOR  != null) parts.push({ avg: typeAvgs.SOR,  w: weights.w_sor });
                 if (typeAvgs.SOCH != null) parts.push({ avg: typeAvgs.SOCH, w: weights.w_soch });
 
                 if (!parts.length) return;
@@ -347,7 +348,6 @@ if (fileInput) {
                 const final_percent =
                     parts.reduce((s, p) => s + p.avg * p.w, 0) / totalW;
 
-                // ищем class_id по любой записи
                 let class_id = null;
                 const anyRow = gradesRaw.find(r =>
                     String(r.student_id).trim() === student_id &&
@@ -363,8 +363,8 @@ if (fileInput) {
 
                 const student_name = buildPersonName(student);
                 const class_name   = buildClassLabel(cls);
+                const grade_num    = extractGradeFromClassRow(cls);
                 const subject_name = String(subj.subject_name || subj.name || subject_id).trim();
-                const grade_num    = cls.grade ?? cls.grade_num ?? cls.grade_number ?? null;
 
                 const final_5scale = mapPercentTo5pt(final_percent);
                 const knowledge_quality = computeKnowledgeQuality(final_5scale);
@@ -386,7 +386,6 @@ if (fileInput) {
             });
         }
 
-
         /* ------------------------------------------------------
            ПОДГОТОВКА ДАННЫХ ПО УЧИТЕЛЯМ
         ------------------------------------------------------ */
@@ -403,9 +402,8 @@ if (fileInput) {
             };
         });
 
-
         /* ------------------------------------------------------
-           ПОДГОТОВКА ДАННЫХ ПО ПОСЕЩАЕМОСТИ
+           ПОСЕЩАЕМОСТЬ
         ------------------------------------------------------ */
 
         const attendanceProcessed = (attendanceRaw || []).map(r => {
@@ -438,9 +436,8 @@ if (fileInput) {
             };
         });
 
-
         /* ------------------------------------------------------
-           СОХРАНЯЕМ РЕЗУЛЬТАТ ВСЕХ РАСЧЁТОВ
+           СОХРАНЯЕМ ВСЁ В state
         ------------------------------------------------------ */
 
         state.allRows     = analyticRows;
@@ -459,17 +456,14 @@ if (fileInput) {
         state.teachers          = teachersRaw;
         state.assignments       = assignmentsRaw;
 
-        // новые структуры для удобства модулей
         state.allTeachers        = allTeachers;
         state.teacherAssignments = assignmentsRaw;
         state.idx_subjects       = idx_subjects;
 
-        // посещаемость
         state.attendanceRows     = attendanceProcessed;
 
-
         /* ------------------------------------------------------
-           УВЕДОМЛЯЕМ ВСЕ ДАШБОРДЫ
+           УВЕДОМЛЯЕМ ДАШБОРДЫ
         ------------------------------------------------------ */
 
         SBI.setStatus("Данные загружены успешно.");

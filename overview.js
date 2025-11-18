@@ -185,7 +185,7 @@ window.SBI_Overview = (function () {
         });
     }
 
-    // ───────────────── HEATMAP: более подробная ─────────────────
+    // ───────────────── HEATMAP: контрастная и с числами в ячейках ─────────────────
 
     function renderHeatmap() {
         if (!heatmapEl) return;
@@ -222,7 +222,7 @@ window.SBI_Overview = (function () {
                     return;
                 }
 
-                const qRatio = SBI.knowledgeRatio(subset);
+                const qRatio   = SBI.knowledgeRatio(subset);
                 const qPercent = qRatio != null ? qRatio * 100 : null;
 
                 const vals = subset
@@ -236,6 +236,7 @@ window.SBI_Overview = (function () {
                 const avgStr = avgGrade  != null ? avgGrade.toFixed(2)       : "—";
 
                 zRow.push(qPercent != null ? qPercent : null);
+                // текст в ячейке — округленный % качества
                 textRow.push(qPercent != null ? qPercent.toFixed(0) + "%" : "");
 
                 hoverRow.push(
@@ -256,22 +257,34 @@ window.SBI_Overview = (function () {
             x: terms,
             y: yLabels,
             type: "heatmap",
-            colorscale: "YlOrRd",
+            // более контрастная и "школьная" шкала: красный → жёлтый → зелёный
+            colorscale: [
+                [0.0,  "#d73027"],  // красный (низкое качество)
+                [0.25, "#f46d43"],
+                [0.5,  "#fee08b"],  // жёлтый
+                [0.75, "#a6d96a"],
+                [1.0,  "#1a9850"]   // зелёный (высокое качество)
+            ],
             zmin: 0,
             zmax: 100,
             colorbar: { title: "% 4–5" },
             text: textShort,
+            texttemplate: "%{text}",         // явно выводим текст в ячейках
+            textfont: {
+                size: 11,
+                color: "black"
+            },
             customdata: hoverText,
             hovertemplate: "%{customdata}<extra></extra>"
         }], {
             title: "Качество знаний по четвертям и классам (1–11)",
             xaxis: { title: "Четверть" },
             yaxis: { title: "Класс", automargin: true },
-            margin: { l: 80, r: 20, t: 50, b: 60 }
+            margin: { l: 80, r: 30, t: 50, b: 60 }
         });
     }
 
-    // ───────────────── DONUT: аккуратный и без налезания ─────────────────
+    // ───────────────── DONUT (оставляем из предыдущей версии) ─────────────────
 
     function renderPie() {
         if (!pieEl) return;

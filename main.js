@@ -1,5 +1,5 @@
 // ==========================================================
-//               MAIN.JS — ИСПРАВЛЕН
+//               MAIN.JS — ФИНАЛЬНАЯ ВЕРСИЯ
 // ==========================================================
 
 console.log("JS загружен: main.js");
@@ -16,8 +16,8 @@ SBI.log("Приложение инициализировано. Ожидаетс
 function buildPersonName(row, lastKey = "last_name", firstKey = "first_name", middleKey = "middle_name") {
     if (!row) return "";
     const parts = [
-        row[lastKey] != null ? String(row[lastKey]).trim() : "",
-        row[firstKey] != null ? String(row[firstKey]).trim() : "",
+        row[lastKey]   != null ? String(row[lastKey]).trim()   : "",
+        row[firstKey]  != null ? String(row[firstKey]).trim()  : "",
         row[middleKey] != null ? String(row[middleKey]).trim() : ""
     ].filter(Boolean);
     return parts.join(" ");
@@ -27,7 +27,7 @@ function buildClassLabel(row) {
     if (!row) return "";
     if (row.class_name) return String(row.class_name).trim();
 
-    const grade = row.grade ?? row.grade_num ?? row.grade_number;
+    const grade   = row.grade ?? row.grade_num ?? row.grade_number;
     const section = row.section ?? row.letter ?? row.class_letter;
 
     if (grade == null && !section) {
@@ -37,11 +37,9 @@ function buildClassLabel(row) {
 }
 
 function extractGradeFromClassRow(cls) {
-    // если есть явное поле — используем его
     let g = cls.grade ?? cls.grade_num ?? cls.grade_number;
     if (g != null) return g;
 
-    // иначе пробуем вытащить первую цифру/число из class_name
     const name = cls.class_name || cls.name || "";
     const m = String(name).match(/\d+/);
     if (m) {
@@ -76,7 +74,7 @@ if (fileInput) {
 
         SBI.log("Найденные листы: " + workbook.SheetNames.join(", "));
 
-        const state = SBI.state;
+        const state  = SBI.state;
         const sheets = workbook.Sheets;
 
         function readSheet(name) {
@@ -144,11 +142,11 @@ if (fileInput) {
         ------------------------------------------------------ */
         function getWeights(subject_id, term_id) {
             const sid = subject_id ? String(subject_id).trim() : "";
-            const tid = term_id ? String(term_id).trim() : "";
+            const tid = term_id    ? String(term_id).trim()    : "";
 
             const exact = weightsRaw.find(r =>
                 String(r.subject_id || "").trim() === sid &&
-                String(r.term_id || "").trim() === tid
+                String(r.term_id    || "").trim() === tid
             );
 
             const subjOnly = !exact && sid &&
@@ -172,7 +170,7 @@ if (fileInput) {
             if (!row) return defaults;
 
             return {
-                w_fo: toNumber(row.w_fo ?? row.fo_weight) ?? defaults.w_fo,
+                w_fo: toNumber(row.w_fo ?? row.fo_weight)   ?? defaults.w_fo,
                 w_sor: toNumber(row.w_sor ?? row.sor_weight) ?? defaults.w_sor,
                 w_soch: toNumber(row.w_soch ?? row.soch_weight) ?? defaults.w_soch
             };
@@ -182,19 +180,29 @@ if (fileInput) {
            ШКАЛА 5-БАЛЛЬНОЙ ОЦЕНКИ
         ------------------------------------------------------ */
 
-        const scale = scaleRaw
+        let scale = (scaleRaw || [])
             .map(r => {
                 let min = toNumber(r.min_percent ?? r.threshold ?? r.percent_min);
-                if (min == null) return null;
-                if (min <= 1) min = min * 100; // 0.7 → 70%
-
                 const grade = toNumber(r.grade_5pt ?? r.grade ?? r.mark);
-                if (grade == null) return null;
-
+                if (min == null || grade == null) return null;
+                if (min <= 1) min = min * 100; // 0.7 → 70
                 return { min, grade };
             })
             .filter(Boolean)
             .sort((a, b) => a.min - b.min);
+
+        // 🔥 КРИТИЧЕСКИЙ ФОЛБЭК: если шкала не прочиталась из Excel,
+        // используем стандартные пороги 50/70/85:
+        if (!scale.length) {
+            SBI.log("⚠️ Не удалось прочитать шкалу 5-балльной оценки из листа «ШКАЛА_5Б». " +
+                    "Используем стандартные пороги (50/70/85).");
+            scale = [
+                { min: 0,  grade: 2 },
+                { min: 50, grade: 3 },
+                { min: 70, grade: 4 },
+                { min: 85, grade: 5 }
+            ];
+        }
 
         function mapPercentTo5pt(pct) {
             const p = toNumber(pct);
@@ -235,18 +243,16 @@ if (fileInput) {
                 const student = idx_students[student_id] || {};
                 const cls     = class_id ? (idx_classes[class_id] || {}) : {};
                 const subj    = idx_subjects[subject_id] || {};
-                const term    = idx_terms[term_id] || {};
+                const termObj = idx_terms[term_id] || {};
 
                 const student_name = buildPersonName(student);
                 const class_name   = buildClassLabel(cls);
                 const grade_num    = extractGradeFromClassRow(cls);
-
                 const subject_name = String(subj.subject_name || subj.name || subject_id).trim();
 
                 let final_percent = toNumber(r.final_percent);
                 if (final_percent != null && final_percent <= 1) {
-                    // 0,81 → 81
-                    final_percent = final_percent * 100;
+                    final_percent = final_percent * 100; // 0,81 → 81
                 }
 
                 const final_5scale  = toNumber(r.final_5pt) ?? mapPercentTo5pt(final_percent);
@@ -271,10 +277,10 @@ if (fileInput) {
             // === ВАРИАНТ 2: считаем из ОЦЕНКИ ===
             SBI.log("Вычисляем четвертные оценки из ОЦЕНКИ.");
 
-            const byTypeKey = {}; // student|subject|term|work_type → []
+            // группируем оценки по (student, subject, term, work_type)
+            const byTypeKey = {}; // key → [проценты]
 
             gradesRaw.forEach(r => {
-
                 const student_id = String(r.student_id || "").trim();
                 const subject_id = String(r.subject_id || "").trim();
                 const term_id    = String(r.term_id    || "").trim();
@@ -288,7 +294,7 @@ if (fileInput) {
                 let pct = null;
 
                 if (r.percent != null) {
-                    let frac = toNumber(r.percent); // 0.81 или 81
+                    let frac = toNumber(r.percent); // 0,81 или 81
                     if (frac != null) {
                         if (frac <= 1) frac = frac * 100;
                         pct = frac;
@@ -304,6 +310,7 @@ if (fileInput) {
                 if (pct != null) byTypeKey[key].push(pct);
             });
 
+            // агрегируем до (student, subject, term)
             const perPST = {};
 
             Object.keys(byTypeKey).forEach(key => {
@@ -330,6 +337,7 @@ if (fileInput) {
                 perPST[pstKey].typeAvgs[t] = avg;
             });
 
+            // расчёт итогового процента и 5-балльной
             Object.keys(perPST).forEach(pstKey => {
 
                 const item = perPST[pstKey];
@@ -352,7 +360,7 @@ if (fileInput) {
                 const anyRow = gradesRaw.find(r =>
                     String(r.student_id).trim() === student_id &&
                     String(r.subject_id).trim() === subject_id &&
-                    String(r.term_id).trim() === term_id
+                    String(r.term_id).trim()    === term_id
                 );
                 if (anyRow) class_id = String(anyRow.class_id || anyRow.current_class_id || "").trim();
 
@@ -366,8 +374,8 @@ if (fileInput) {
                 const grade_num    = extractGradeFromClassRow(cls);
                 const subject_name = String(subj.subject_name || subj.name || subject_id).trim();
 
-                const final_5scale = mapPercentTo5pt(final_percent);
-                const knowledge_quality = computeKnowledgeQuality(final_5scale);
+                const final_5scale       = mapPercentTo5pt(final_percent);
+                const knowledge_quality  = computeKnowledgeQuality(final_5scale);
 
                 analyticRows.push({
                     student_id,
@@ -391,10 +399,10 @@ if (fileInput) {
         ------------------------------------------------------ */
 
         const allTeachers = teachersRaw.map(t => {
-            const id = String(t.teacher_id || "").trim();
+            const id        = String(t.teacher_id || "").trim();
             const readyName = t.teacher_name && String(t.teacher_name).trim();
             const builtName = buildPersonName(t);
-            const name = readyName || builtName || id;
+            const name      = readyName || builtName || id;
             return {
                 ...t,
                 teacher_id: id,

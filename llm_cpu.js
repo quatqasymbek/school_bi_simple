@@ -1,116 +1,167 @@
 // llm_cpu.js
-console.log("llm_cpu.js загружен (модуль LLM)");
+// Shared in-browser LLM helper using WebLLM + Llama-3.2-3B-Instruct
 
-let chat = null;
-let llmReady = false;
-let llmInitStarted = false;
+(function (global) {
+    const MODEL_ID = "Llama-3.2-3B-Instruct-q4f16_1-MLC";
 
-async function initLLM() {
-    if (llmReady || llmInitStarted) return;
-    llmInitStarted = true;
+    let webllmModule = null;
+    let engine = null;
+    let loading = false;
+    let lastProgressText = "";
 
-    if (typeof window.webllm === "undefined") {
-        console.warn("[LLM] webllm не найден. Локальный ИИ отключён.");
-        const status = document.getElementById("llm-status");
-        const btn = document.getElementById("btn-explain-overview");
-        if (status) status.textContent = "Локальный ИИ недоступен в этой сборке.";
-        if (btn) btn.disabled = true;
-        return;
+    function defaultLog() {
+        if (console && console.log) {
+            console.log.apply(console, arguments);
+        }
     }
 
-    const status = document.getElementById("llm-status");
-    if (status) status.textContent = "Загрузка локальной модели ИИ (однократно)…";
+    /**
+     * Ensure WebLLM engine is loaded for the Llama-3.2-3B-Instruct model.
+     * Returns a Promise<engine>.
+     */
+    async function ensureEngine(onProgress) {
+        if (engine) return engine;
 
-    chat = await window.webllm.ChatModule.createChatModule({
-        model: "Llama-3.2-3B-Instruct-q4f16_1-MLC",
-        device: "wasm",
-        tokenizer: "Default"
-    });
-
-    llmReady = true;
-    if (status) status.textContent = "Локальный ИИ готов к работе.";
-}
-
-function buildOverviewTrendContext() {
-    const state = window.SBI ? SBI.state : { allRows: [] };
-    const rows = state.allRows || [];
-    const byTerm = SBI.groupBy(rows, function (r) {
-        return r.term;
-    }, function (r) {
-        return Number(r.final_percent ?? r.final_5scale ?? NaN);
-    });
-
-    const terms = state.allTerms || [];
-    const trend = terms.map(function (t) {
-        return {
-            term: t,
-            avg: SBI.mean(byTerm[t] || [])
-        };
-    });
-
-    return { trend: trend };
-}
-
-async function explainOverviewTrend() {
-    const btn = document.getElementById("btn-explain-overview");
-    const status = document.getElementById("llm-status");
-    const out = document.getElementById("overview-ai-explanation");
-
-    if (!btn || !status || !out) return;
-
-    await initLLM();
-    if (!llmReady || !chat) {
-        // webllm отсутствует – уже показали сообщение
-        return;
-    }
-
-    btn.disabled = true;
-    status.textContent = "ИИ анализирует данные…";
-    out.textContent = "";
-
-    const context = buildOverviewTrendContext();
-    const json = JSON.stringify(context);
-
-    const prompt =
-        "Ты — помощник завуча школы. На входе у тебя JSON с трендом среднего балла по четвертям.\n" +
-        "Нужно кратко и понятным языком описать ситуацию.\n\n" +
-        "Данные:\n" + json + "\n\n" +
-        "Сформируй ответ в формате:\n" +
-        "1. Краткий вывод\n" +
-        "2. Положительные моменты\n" +
-        "3. Риски и проблемные зоны\n" +
-        "4. Рекомендации для школы\n\n" +
-        "Пиши по-русски, без сложной терминологии.";
-
-    try {
-        const reply = await chat.generate(prompt, {
-            temperature: 0.15,
-            max_tokens: 512,
-            top_p: 0.9
-        });
-
-        let text = reply.trim();
-        const idx = text.indexOf("1.");
-        if (idx > 0) {
-            text = text.substring(idx);
+        if (loading) {
+            // Wait until existing load finishes
+            while (loading && !engine) {
+                await new Promise(function (resolve) { setTimeout(resolve, 300); });
+            }
+            return engine;
         }
 
-        out.textContent = text;
-        status.textContent = "Готово. Можно обновить анализ после изменения данных.";
-    } catch (e) {
-        console.error("Ошибка LLM:", e);
-        status.textContent = "Ошибка при работе локального ИИ.";
-        out.textContent = "";
-    } finally {
-        btn.disabled = false;
-    }
-}
+        loading = true;
+        try {
+            if (typeof onProgress !== "function") {
+                onProgress = function (msg) {
+                    lastProgressText = msg;
+                    defaultLog("[LLM]", msg);
+                };
+            }
 
-window.addEventListener("DOMContentLoaded", function () {
-    const btn = document.getElementById("btn-explain-overview");
-    if (btn) {
-        btn.addEventListener("click", function () {
-            explainOverviewTrend();
-        });
+            onProgress("Инициализация WebLLM…");
+
+            // Load WebLLM from CDN (ESM)
+            // Pin to a known version for stability
+            // See docs: https://webllm.mlc.ai :contentReference[oaicite:2]{index=2}
+            webllmModule = await import("https://esm.run/@mlc-ai/web-llm@0.2.79");
+
+            onProgress("Загружается модель: " + MODEL_ID);
+
+            const initProgressCallback = function (progress) {
+                const msg = "Загрузка модели: " +
+                    Math.round((progress.progress || 0) * 100) + "% (" +
+                    (progress.text || "") + ")";
+                lastProgressText = msg;
+                onProgress(msg);
+            };
+
+            engine = await webllmModule.CreateMLCEngine(
+                MODEL_ID,
+                { initProgressCallback: initProgressCallback }
+            );
+
+            onProgress("Модель Llama 3.2 3B Instruct загружена и готова к работе.");
+            return engine;
+        } catch (err) {
+            defaultLog("[LLM] error during init:", err);
+            lastProgressText = "Ошибка инициализации модели.";
+            throw err;
+        } finally {
+            loading = false;
+        }
     }
-});
+
+    /**
+     * High-level helper to get an interpretation.
+     * options: {
+     *   context: string,          // e.g. "overview_dashboard"
+     *   data: object,             // aggregated JSON ONLY
+     *   userInstruction?: string, // extra text for the LLM
+     *   temperature?: number,
+     *   maxTokens?: number,
+     *   onProgress?: (msg:string) => void
+     * }
+     */
+    async function interpret(options) {
+        const context = options.context || "generic_dashboard";
+        const data = options.data || {};
+        const userInstruction = options.userInstruction || "";
+        const temperature = typeof options.temperature === "number" ? options.temperature : 0.3;
+        const maxTokens = typeof options.maxTokens === "number" ? options.maxTokens : 700;
+        const onProgress = typeof options.onProgress === "function" ? options.onProgress : defaultLog;
+
+        const engineInstance = await ensureEngine(onProgress);
+        if (!engineInstance) {
+            throw new Error("LLM engine is not available.");
+        }
+
+        const jsonData = JSON.stringify(data, null, 2);
+
+        const systemPrompt = [
+            "Ты — аналитик данных школьной успеваемости.",
+            "Тебе даются только агрегированные данные из дашборда в виде JSON.",
+            "Используй ТОЛЬКО эти числа и структуры.",
+            "Не придумывай новые точные проценты или значения, которых нет в JSON.",
+            "Можно описывать тенденции (выше/ниже, растёт/падает), но без фиктивных цифр."
+        ].join(" ");
+
+        const userPrompt =
+            "Контекст дашборда: " + context + "\n\n" +
+            "Агрегированные данные в формате JSON:\n" +
+            jsonData + "\n\n" +
+            (userInstruction || (
+                "Сделай, пожалуйста, интерпретацию этих данных:\n" +
+                "1) Кратко опиши общую картину успеваемости.\n" +
+                "2) Выдели сильные стороны.\n" +
+                "3) Укажи возможные зоны риска.\n" +
+                "4) Дай 3–5 практических рекомендаций для педагогов и администрации.\n" +
+                "Пиши по-русски, структурировано, читабельно, но без чрезмерной длины."
+            ));
+
+        const messages = [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+        ];
+
+        onProgress("AI анализирует данные…");
+
+        const reply = await engineInstance.chat.completions.create({
+            messages: messages,
+            temperature: temperature,
+            max_tokens: maxTokens
+        });
+
+        let text = "";
+
+        try {
+            const choice = reply.choices && reply.choices[0];
+            if (choice && choice.message) {
+                if (typeof choice.message.content === "string") {
+                    text = choice.message.content;
+                } else if (Array.isArray(choice.message.content)) {
+                    text = choice.message.content.map(function (c) {
+                        return (typeof c === "string") ? c : (c.text || "");
+                    }).join("");
+                }
+            }
+        } catch (e) {
+            defaultLog("[LLM] parsing reply error:", e);
+        }
+
+        if (!text) {
+            text = "AI не вернул читаемый текст. Сырой ответ:\n" +
+                JSON.stringify(reply, null, 2);
+        }
+
+        return text.trim();
+    }
+
+    global.SBI_LLM = {
+        ensureEngine: ensureEngine,
+        interpret: interpret,
+        getModelId: function () { return MODEL_ID; },
+        getLastProgressText: function () { return lastProgressText; }
+    };
+
+})(window);

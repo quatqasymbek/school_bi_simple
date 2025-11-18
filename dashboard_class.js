@@ -9,19 +9,17 @@ window.SBI_Class = (function () {
 
     let summaryContainer;   // верхняя таблица по всем классам
     let pieContainer;       // круговая диаграмма
-    let trendContainer;     // пока не используем (можно для будущих графиков)
-    let heatmapContainer;   // пока не используем
+    let trendContainer;
+    let heatmapContainer;
 
-    // ------------------------------------------
-    // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-    // ------------------------------------------
+    // ---------------- ВСПОМОГАТЕЛЬНОЕ ----------------
 
     function buildTeacherName(row) {
         if (!row) return "";
         const parts = [
-            row.last_name  != null ? String(row.last_name).trim()  : "",
-            row.first_name != null ? String(row.first_name).trim() : "",
-            row.middle_name!= null ? String(row.middle_name).trim(): ""
+            row.last_name   != null ? String(row.last_name).trim()   : "",
+            row.first_name  != null ? String(row.first_name).trim()  : "",
+            row.middle_name != null ? String(row.middle_name).trim() : ""
         ].filter(Boolean);
         return parts.join(" ");
     }
@@ -34,12 +32,12 @@ window.SBI_Class = (function () {
         return buildTeacherName(tr) || tid;
     }
 
-    // Категоризация учащихся по классу и четверти
+    // Категоризация учащихся по подмножеству строк (один класс + четверть)
     function classifyStudents(rows) {
         const byStudent = SBI.groupBy(
             rows,
             r => r.student_id,
-            r => Number(r.final_5scale)
+            r => SBI.toNumber(r.final_5scale)
         );
 
         let excellent = 0; // только 5
@@ -48,7 +46,7 @@ window.SBI_Class = (function () {
         let two = 0;       // есть 2
 
         Object.keys(byStudent).forEach(sid => {
-            const grades = byStudent[sid].filter(g => !Number.isNaN(g));
+            const grades = byStudent[sid].filter(g => g != null && !Number.isNaN(g));
             if (!grades.length) return;
 
             const has2 = grades.some(g => g === 2);
@@ -71,8 +69,7 @@ window.SBI_Class = (function () {
         return { excellent, good, three, two };
     }
 
-    // Качество знаний для поднабора строк:
-    // доля учеников, у которых НЕТ 2–3 (только отличники + хорошисты)
+    // Качество знаний = (отличники + хорошисты) / всех
     function computeQuality(rows) {
         const { excellent, good, three, two } = classifyStudents(rows);
         const total = excellent + good + three + two;
@@ -80,9 +77,11 @@ window.SBI_Class = (function () {
         return (excellent + good) / total; // 0..1
     }
 
-    // ------------------------------------------
-    // ВЕРХНЯЯ ТАБЛИЦА ПО ВСЕМ КЛАССАМ
-    // ------------------------------------------
+    function getClassLabelFromRow(cls) {
+        return String(cls.class_name || cls.class_id || "").trim();
+    }
+
+    // ---------------- ВЕРХНЯЯ ТАБЛИЦА ----------------
 
     function renderClassSummaryTable() {
         if (!summaryContainer) return;
@@ -95,18 +94,17 @@ window.SBI_Class = (function () {
 
         const classes  = state.classesTable || [];
         const teachers = state.teachers || [];
-        const terms    = state.allTerms || [];
+        const rawTerms = state.allTerms || [];
+        const terms    = rawTerms.map(t => String(t).trim());
 
-        // Индекс учителей по id
+        // индекс учителей
         const teachersIndex = {};
         teachers.forEach(t => {
             const id = String(t.teacher_id || "").trim();
-            if (!id) return;
-            teachersIndex[id] = t;
+            if (id) teachersIndex[id] = t;
         });
 
-        // Для быстрого фильтра: группируем по (класс, четверть)
-        // КЛЮЧ = "label|term", где label = человекопонятное название класса
+        // группировка по (класс, четверть)
         const byClassTerm = {};
         rows.forEach(r => {
             const label = String(r.class || r.class_id || "").trim();
@@ -117,7 +115,6 @@ window.SBI_Class = (function () {
             byClassTerm[key].push(r);
         });
 
-        // Строим таблицу
         let html = `
             <h3>Качество знаний по всем классам</h3>
             <table class="simple-table">
@@ -126,49 +123,45 @@ window.SBI_Class = (function () {
                         <th>Класс</th>
                         <th>Классный руководитель</th>
         `;
-
         terms.forEach(t => {
             html += `<th>${t}</th>`;
         });
-
         html += `
                     </tr>
                 </thead>
                 <tbody>
         `;
 
-        // сортируем классы по названию (1 «А» … 11 «Б»)
         const sortedClasses = [...classes].sort((a, b) => {
-            const an = String(a.class_name || a.class_id || "");
-            const bn = String(b.class_name || b.class_id || "");
+            const an = getClassLabelFromRow(a);
+            const bn = getClassLabelFromRow(b);
             return an.localeCompare(bn, "ru");
         });
 
         sortedClasses.forEach(cls => {
-            const label = String(cls.class_name || cls.class_id || "").trim();
+            const label = getClassLabelFromRow(cls);
             if (!label) return;
 
-            const className     = label;
-            const homeroomName  = getHomeroomTeacherName(cls, teachersIndex);
+            const homeroomName = getHomeroomTeacherName(cls, teachersIndex);
 
             html += `
                 <tr>
-                    <td>${className}</td>
+                    <td>${label}</td>
                     <td>${homeroomName || ""}</td>
             `;
 
-            terms.forEach(tid => {
+            terms.forEach(rawTid => {
+                const tid = String(rawTid).trim();
                 const key = label + "|" + tid;
                 const subset = byClassTerm[key] || [];
+
                 if (!subset.length) {
                     html += `<td>n/a</td>`;
                 } else {
                     const q = computeQuality(subset);
-                    if (q == null) {
-                        html += `<td>n/a</td>`;
-                    } else {
-                        html += `<td>${Math.round(q * 100)}%</td>`;
-                    }
+                    html += q == null
+                        ? `<td>n/a</td>`
+                        : `<td>${Math.round(q * 100)}%</td>`;
                 }
             });
 
@@ -183,9 +176,16 @@ window.SBI_Class = (function () {
         summaryContainer.innerHTML = html;
     }
 
-    // ------------------------------------------
-    // КРУГОВАЯ ДИАГРАММА ПО ВЫБРАННОМУ КЛАССУ
-    // ------------------------------------------
+    // ---------------- КРУГОВАЯ ДИАГРАММА ----------------
+
+    function getClassNameByLabel(label) {
+        const classes = state.classesTable || [];
+        const found = classes.find(c =>
+            getClassLabelFromRow(c) === String(label).trim()
+        );
+        if (found) return getClassLabelFromRow(found);
+        return label;
+    }
 
     function renderClassPie() {
         if (!pieContainer) return;
@@ -197,24 +197,24 @@ window.SBI_Class = (function () {
         }
 
         const term    = termSelect  && termSelect.value  ? termSelect.value  : null;
-        const classId = classSelect && classSelect.value ? classSelect.value : null;
+        const classLb = classSelect && classSelect.value ? classSelect.value : null;
 
-        if (!term || !classId) {
+        if (!term || !classLb) {
             pieContainer.innerHTML = "<p>Выберите четверть и класс.</p>";
             return;
         }
 
-        const subset = allRows.filter(r =>
+        const rows = allRows.filter(r =>
             String(r.term_id || r.term || "").trim() === String(term).trim() &&
-            String(r.class || r.class_id || "").trim() === String(classId).trim()
+            String(r.class    || r.class_id || "").trim() === String(classLb).trim()
         );
 
-        if (!subset.length) {
+        if (!rows.length) {
             pieContainer.innerHTML = "<p>Для этого класса и четверти пока нет итоговых оценок.</p>";
             return;
         }
 
-        const { excellent, good, three, two } = classifyStudents(subset);
+        const { excellent, good, three, two } = classifyStudents(rows);
 
         const labels = [
             "Отличники (только 5)",
@@ -231,23 +231,12 @@ window.SBI_Class = (function () {
             textinfo: "label+percent",
             hole: 0.35
         }], {
-            title: `Структура успеваемости — класс ${getClassNameById(classId)} (${term})`,
+            title: `Структура успеваемости — ${getClassNameByLabel(classLb)} (${term})`,
             legend: { orientation: "h", y: -0.1 }
         });
     }
 
-    function getClassNameById(classId) {
-        const cls = (state.classesTable || []).find(c =>
-            String(c.class_id || "").trim() === String(classId).trim() ||
-            String(c.class_name || "").trim() === String(classId).trim()
-        );
-        if (cls) return cls.class_name || cls.class_id || classId;
-        return classId;
-    }
-
-    // ------------------------------------------
-    // ИНИЦИАЛИЗАЦИЯ И ПОДПИСКА НА ДАННЫЕ
-    // ------------------------------------------
+    // ---------------- ИНИЦИАЛИЗАЦИЯ ----------------
 
     function initDom() {
         termSelect       = document.getElementById("classTermSelect");
@@ -268,32 +257,33 @@ window.SBI_Class = (function () {
             return;
         }
 
-        // заполняем селектор четвертей
+        // четверти
         if (termSelect) {
             termSelect.innerHTML = "";
             (state.allTerms || []).forEach(t => {
+                const tidy = String(t).trim();
                 const opt = document.createElement("option");
-                opt.value = t;
-                opt.textContent = t;
+                opt.value = tidy;
+                opt.textContent = tidy;
                 termSelect.appendChild(opt);
             });
             if (state.allTerms.length) {
-                termSelect.value = state.allTerms[state.allTerms.length - 1];
+                termSelect.value = String(state.allTerms[state.allTerms.length - 1]).trim();
             }
         }
 
-        // селектор классов — значение = человекопонятное название класса
+        // классы
         if (classSelect) {
             classSelect.innerHTML = "";
             const classes = state.classesTable || [];
             const sortedClasses = [...classes].sort((a, b) => {
-                const an = String(a.class_name || a.class_id || "");
-                const bn = String(b.class_name || b.class_id || "");
+                const an = getClassLabelFromRow(a);
+                const bn = getClassLabelFromRow(b);
                 return an.localeCompare(bn, "ru");
             });
 
             sortedClasses.forEach(cls => {
-                const label = String(cls.class_name || cls.class_id || "").trim();
+                const label = getClassLabelFromRow(cls);
                 if (!label) return;
                 const opt = document.createElement("option");
                 opt.value = label;
@@ -302,13 +292,9 @@ window.SBI_Class = (function () {
             });
         }
 
-        // верхняя таблица
         renderClassSummaryTable();
-
-        // круговая диаграмма
         renderClassPie();
 
-        // очистим лишние блоки (можно использовать в будущем)
         if (trendContainer) {
             trendContainer.innerHTML =
                 "<p style='font-size:13px;color:#666;'>Здесь позже можно добавить график динамики по классам.</p>";
@@ -318,7 +304,6 @@ window.SBI_Class = (function () {
         }
     }
 
-    // сразу инициализируем DOM-ссылки
     initDom();
 
     return {

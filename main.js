@@ -1,4 +1,7 @@
-// main.js
+// ==========================================================
+//               MAIN.JS — ПОЛНОСТЬЮ ОБНОВЛЁН
+// ==========================================================
+
 console.log("JS загружен: main.js");
 
 const fileInput = document.getElementById("excelUpload");
@@ -6,7 +9,9 @@ const fileInput = document.getElementById("excelUpload");
 SBI.setStatus("Приложение готово. Загрузите Excel-файл.");
 SBI.log("Приложение инициализировано. Ожидается загрузка файла.");
 
-/* --------- Вспомогательные функции --------- */
+/* ------------------------------------------------------
+   ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+------------------------------------------------------ */
 
 function buildPersonName(row, lastKey = "last_name", firstKey = "first_name", middleKey = "middle_name") {
     if (!row) return "";
@@ -31,13 +36,16 @@ function buildClassLabel(row) {
     return String(row.class_id || `K-${grade}${section || ""}`).trim();
 }
 
-// короткий алиас
 const toNumber = SBI.toNumber;
 
-/* --------- Обработка загрузки Excel --------- */
+
+/* ------------------------------------------------------
+   ОБРАБОТКА ЗАГРУЗКИ EXCEL
+------------------------------------------------------ */
 
 if (fileInput) {
     fileInput.addEventListener("change", async () => {
+
         SBI.log("Событие загрузки файла.");
         const file = fileInput.files[0];
         if (!file) {
@@ -67,7 +75,7 @@ if (fileInput) {
             return rows;
         }
 
-        // 1. Чтение основных таблиц
+        // ------------- Чтение таблиц -------------
         const studentsRaw    = readSheet("УЧАЩИЕСЯ");
         const classesRaw     = readSheet("КЛАССЫ");
         const subjectsRaw    = readSheet("ПРЕДМЕТЫ");
@@ -79,48 +87,26 @@ if (fileInput) {
         const scaleRaw       = readSheet("ШКАЛА_5Б");
         const termResultsRaw = sheets["ИТОГ_ЧЕТВЕРТИ"] ? readSheet("ИТОГ_ЧЕТВЕРТИ") : [];
 
-        if (!gradesRaw.length && !termResultsRaw.length) {
-            SBI.setStatus("❌ Нет данных в листах ОЦЕНКИ или ИТОГ_ЧЕТВЕРТИ. Нечего анализировать.");
-            return;
-        }
 
-        // 2. Индексы для связей
+        // ------------- Индексы -------------
         const idx_students = {};
-        studentsRaw.forEach(r => {
-            const id = String(r.student_id || "").trim();
-            if (!id) return;
-            idx_students[id] = r;
-        });
+        studentsRaw.forEach(r => idx_students[String(r.student_id || "").trim()] = r);
 
         const idx_classes = {};
-        classesRaw.forEach(r => {
-            const id = String(r.class_id || "").trim();
-            if (!id) return;
-            idx_classes[id] = r;
-        });
+        classesRaw.forEach(r => idx_classes[String(r.class_id || "").trim()] = r);
 
         const idx_subjects = {};
-        subjectsRaw.forEach(r => {
-            const id = String(r.subject_id || "").trim();
-            if (!id) return;
-            idx_subjects[id] = r;
-        });
+        subjectsRaw.forEach(r => idx_subjects[String(r.subject_id || "").trim()] = r);
 
         const idx_terms = {};
-        termsRaw.forEach(r => {
-            const id = String(r.term_id || "").trim();
-            if (!id) return;
-            idx_terms[id] = r;
-        });
+        termsRaw.forEach(r => idx_terms[String(r.term_id || "").trim()] = r);
 
         const idx_teachers = {};
-        teachersRaw.forEach(r => {
-            const id = String(r.teacher_id || "").trim();
-            if (!id) return;
-            idx_teachers[id] = r;
-        });
+        teachersRaw.forEach(r => idx_teachers[String(r.teacher_id || "").trim()] = r);
 
-        // 3. Веса оценок
+        /* ------------------------------------------------------
+           ЧТЕНИЕ ВЕСОВ
+        ------------------------------------------------------ */
         function getWeights(subject_id, term_id) {
             const sid = subject_id ? String(subject_id).trim() : "";
             const tid = term_id ? String(term_id).trim() : "";
@@ -157,15 +143,20 @@ if (fileInput) {
             };
         }
 
-        // 4. Шкала 5-балльной системы
+
+        /* ------------------------------------------------------
+           ШКАЛА 5-БАЛЛЬНОЙ ОЦЕНКИ
+        ------------------------------------------------------ */
+
         const scale = scaleRaw
             .map(r => {
                 let min = toNumber(r.min_percent ?? r.threshold ?? r.percent_min);
                 if (min == null) return null;
-                // поддержка формата 0.8 → 80%
                 if (min <= 1) min = min * 100;
+
                 const grade = toNumber(r.grade_5pt ?? r.grade ?? r.mark);
                 if (grade == null) return null;
+
                 return { min, grade };
             })
             .filter(Boolean)
@@ -174,23 +165,28 @@ if (fileInput) {
         function mapPercentTo5pt(pct) {
             const p = toNumber(pct);
             if (p == null) return null;
+
             let result = null;
+
             for (let i = 0; i < scale.length; i++) {
-                if (p >= scale[i].min) {
-                    result = scale[i].grade;
-                }
+                if (p >= scale[i].min) result = scale[i].grade;
             }
             return result;
         }
 
-        // 5. Формирование агрегированных строк (ученик × предмет × четверть)
+
+        /* ------------------------------------------------------
+           ГЛАВНОЕ: ВЫЧИСЛЕНИЕ ЧЕТВЕРТНЫХ ОЦЕНОК
+        ------------------------------------------------------ */
+
         const analyticRows = [];
 
+        // === ВАРИАНТ 1: Лист ИТОГ_ЧЕТВЕРТИ есть ===
         if (termResultsRaw.length) {
-            // Вариант: уже есть готовый ИТОГ_ЧЕТВЕРТИ
-            SBI.log("Используем лист ИТОГ_ЧЕТВЕРТИ как источник четвертных оценок.");
+            SBI.log("Используем лист ИТОГ_ЧЕТВЕРТИ.");
 
             termResultsRaw.forEach(r => {
+
                 const student_id = String(r.student_id || "").trim();
                 const subject_id = String(r.subject_id || "").trim();
                 const term_id    = String(r.term_id    || "").trim();
@@ -206,17 +202,10 @@ if (fileInput) {
                 const student_name = buildPersonName(student);
                 const class_name   = buildClassLabel(cls);
                 const subject_name = String(subj.subject_name || subj.name || subject_id).trim();
-                const term_name    = String(term.term_id || term.name || term_id).trim();
                 const grade_num    = cls.grade ?? cls.grade_num ?? cls.grade_number ?? null;
 
                 const final_percent = toNumber(r.final_percent);
-                const final_5scale =
-                    toNumber(r.final_5pt) ??
-                    toNumber(r.final_5scale) ??
-                    mapPercentTo5pt(final_percent);
-
-                const knowledge_quality =
-                    final_5scale != null ? (final_5scale >= 4 ? 1 : 0) : null;
+                const final_5scale  = toNumber(r.final_5pt) ?? mapPercentTo5pt(final_percent);
 
                 analyticRows.push({
                     student_id,
@@ -227,56 +216,59 @@ if (fileInput) {
                     subject_id,
                     subject: subject_name,
                     term_id,
-                    term: term_name,
+                    term: term_id,
                     final_percent,
                     final_5scale,
-                    knowledge_quality
+                    knowledge_quality: final_5scale >= 4 ? 1 : 0
                 });
             });
-        } else {
-            // Основной путь: считаем четвертные из ОЦЕНКИ
-            SBI.log("Вычисляем четвертные оценки из ОЦЕНКИ + ВЕСА_ОЦЕНОК + ШКАЛА_5Б.");
+        }
 
-            const byTypeKey = {}; // s|subj|term|type → [percent]
+        // === ВАРИАНТ 2: Считаем из ОЦЕНКИ ===
+        else {
+
+            SBI.log("Вычисляем четвертные оценки из ОЦЕНКИ.");
+
+            const byTypeKey = {}; // student|subject|term|work_type → []
 
             gradesRaw.forEach(r => {
+
                 const student_id = String(r.student_id || "").trim();
                 const subject_id = String(r.subject_id || "").trim();
                 const term_id    = String(r.term_id    || "").trim();
-                const work_type  = String(r.work_type  || "").trim();
+                const work_type  = (r.work_type || "").toString().trim();
 
                 if (!student_id || !subject_id || !term_id || !work_type) return;
 
                 const key = `${student_id}|${subject_id}|${term_id}|${work_type}`;
                 if (!byTypeKey[key]) byTypeKey[key] = [];
 
-                // В Excel percent хранится как 0,81 (доля) → умножаем на 100
+                // === ПАРСИНГ ОЦЕНКИ ===
                 let pct = null;
 
                 if (r.percent != null) {
-                    const frac = toNumber(r.percent);   // 0.81
-                    if (frac != null) pct = frac * 100; // 81
-                } else if (r.score_percent != null) {
-                    pct = toNumber(r.score_percent);    // уже в процентах
-                } else if (r.score != null && r.max_score != null) {
-                    const score = toNumber(r.score);
-                    const max   = toNumber(r.max_score);
-                    if (score != null && max != null && max > 0) {
-                        pct = (score / max) * 100;
-                    }
+                    const frac = toNumber(r.percent);  // 0.81
+                    if (frac != null) pct = frac * 100;
+                }
+                else if (r.score_percent != null) {
+                    pct = toNumber(r.score_percent);
+                }
+                else if (r.score != null && r.max_score != null) {
+                    const s = toNumber(r.score);
+                    const m = toNumber(r.max_score);
+                    if (s != null && m) pct = (s / m) * 100;
                 }
 
-                if (pct != null && !Number.isNaN(pct)) {
-                    byTypeKey[key].push(pct);
-                }
+                if (pct != null) byTypeKey[key].push(pct);
             });
 
-            const perPST = {}; // s|subj|term → { student_id, subject_id, term_id, typeAvgs }
+            // Группировка student|subject|term
+            const perPST = {};
 
             Object.keys(byTypeKey).forEach(key => {
                 const [student_id, subject_id, term_id, rawType] = key.split("|");
-                const pstKey = `${student_id}|${subject_id}|${term_id}`;
 
+                const pstKey = `${student_id}|${subject_id}|${term_id}`;
                 if (!perPST[pstKey]) {
                     perPST[pstKey] = {
                         student_id,
@@ -286,56 +278,62 @@ if (fileInput) {
                     };
                 }
 
+                // === НОРМАЛИЗАЦИЯ work_type (главная ошибка была тут) ===
+                let t = rawType.toString().trim().toUpperCase();
+
+                if (t === "ФО")  t = "FO";
+                if (t === "СОР") t = "SOR";
+                if (t === "СОЧ") t = "SOCH";
+
+                if (t === "FO")   t = "FO";
+                if (t === "SOR")  t = "SOR";
+                if (t === "SOCH") t = "SOCH";
+
                 const arr = byTypeKey[key];
                 const avg = SBI.mean(arr);
-                let t = rawType.toUpperCase();
-
-                if (t === "ФО" || t === "FO") t = "FO";
-                if (t === "СОР" || t === "SOR" || t === "SAU") t = "SOR";
-                if (t === "СОЧ" || t === "SOCH" || t === "SAT") t = "SOCH";
 
                 perPST[pstKey].typeAvgs[t] = avg;
             });
 
+            // === Финальный расчёт четвертной оценки ===
             Object.keys(perPST).forEach(pstKey => {
+
                 const item = perPST[pstKey];
                 const { student_id, subject_id, term_id, typeAvgs } = item;
 
                 const weights = getWeights(subject_id, term_id);
-                const partsArr = [];
-                if (typeAvgs.FO   != null) partsArr.push({ avg: typeAvgs.FO,   w: weights.w_fo   });
-                if (typeAvgs.SOR  != null) partsArr.push({ avg: typeAvgs.SOR,  w: weights.w_sor  });
-                if (typeAvgs.SOCH != null) partsArr.push({ avg: typeAvgs.SOCH, w: weights.w_soch });
 
-                if (!partsArr.length) return;
+                const parts = [];
+                if (typeAvgs.FO != null)   parts.push({ avg: typeAvgs.FO,   w: weights.w_fo });
+                if (typeAvgs.SOR != null)  parts.push({ avg: typeAvgs.SOR,  w: weights.w_sor });
+                if (typeAvgs.SOCH != null) parts.push({ avg: typeAvgs.SOCH, w: weights.w_soch });
 
-                const totalW = partsArr.reduce((s, p) => s + p.w, 0) || 1;
-                const final_percent = partsArr.reduce((s, p) => s + p.avg * p.w, 0) / totalW;
+                if (!parts.length) return;
 
-                // попробуем восстановить class_id по любому ряду ОЦЕНКИ
+                const totalW = parts.reduce((s, p) => s + p.w, 0);
+                const final_percent =
+                    parts.reduce((s, p) => s + p.avg * p.w, 0) / totalW;
+
+                // ищем class_id по любой записи
                 let class_id = null;
-                const anyGradeRow = gradesRaw.find(r =>
-                    String(r.student_id || "").trim() === student_id &&
-                    String(r.subject_id || "").trim() === subject_id &&
-                    String(r.term_id    || "").trim() === term_id
+                const anyRow = gradesRaw.find(r =>
+                    String(r.student_id).trim() === student_id &&
+                    String(r.subject_id).trim() === subject_id &&
+                    String(r.term_id).trim() === term_id
                 );
-                if (anyGradeRow) {
-                    class_id = String(anyGradeRow.class_id || anyGradeRow.current_class_id || "").trim() || null;
-                }
+                if (anyRow) class_id = String(anyRow.class_id || anyRow.current_class_id || "").trim();
 
                 const student = idx_students[student_id] || {};
                 const cls     = class_id ? (idx_classes[class_id] || {}) : {};
                 const subj    = idx_subjects[subject_id] || {};
-                const term    = idx_terms[term_id] || {};
+                const termObj = idx_terms[term_id] || {};
 
                 const student_name = buildPersonName(student);
                 const class_name   = buildClassLabel(cls);
                 const subject_name = String(subj.subject_name || subj.name || subject_id).trim();
-                const term_name    = String(term.term_id || term.name || term_id).trim();
                 const grade_num    = cls.grade ?? cls.grade_num ?? cls.grade_number ?? null;
 
-                const final_5scale      = mapPercentTo5pt(final_percent);
-                const knowledge_quality = final_5scale != null ? (final_5scale >= 4 ? 1 : 0) : null;
+                const final_5scale = mapPercentTo5pt(final_percent);
 
                 analyticRows.push({
                     student_id,
@@ -346,139 +344,41 @@ if (fileInput) {
                     subject_id,
                     subject: subject_name,
                     term_id,
-                    term: term_name,
+                    term: term_id,
                     final_percent,
                     final_5scale,
-                    knowledge_quality
+                    knowledge_quality: final_5scale >= 4 ? 1 : 0
                 });
             });
         }
 
-        // 6. Запись в глобальное состояние
+
+        /* ------------------------------------------------------
+           СОХРАНЯЕМ РЕЗУЛЬТАТ ВСЕХ РАСЧЁТОВ
+        ------------------------------------------------------ */
+
         state.allRows     = analyticRows;
         state.allTerms    = SBI.unique(analyticRows.map(r => r.term));
         state.allSubjects = SBI.unique(analyticRows.map(r => r.subject));
         state.allClasses  = SBI.unique(analyticRows.map(r => r.class));
 
-        SBI.log("Нормализованных строк (ученик × предмет × четверть): " + state.allRows.length);
+        SBI.log("Нормализовано строк (ученик × предмет × четверть): " + analyticRows.length);
         SBI.log("Четверти: " + state.allTerms.join(", "));
-        SBI.log("Предметы: " + state.allSubjects.join(", "));
-        SBI.log("Классы: " + state.allClasses.join(", "));
+        SBI.log("Классы: "  + state.allClasses.join(", "));
 
         state.students      = studentsRaw;
         state.classesTable  = classesRaw;
         state.subjectsTable = subjectsRaw;
-        state.termsTable    = termsRaw;
         state.teachers      = teachersRaw;
         state.assignments   = assignmentsRaw;
 
-        state.idx_students  = idx_students;
-        state.idx_classes   = idx_classes;
-        state.idx_subjects  = idx_subjects;
-        state.idx_terms     = idx_terms;
-        state.idx_teachers  = idx_teachers;
 
-        // Учителя
-        state.allTeachers = teachersRaw
-            .map(t => {
-                const id = String(t.teacher_id || "").trim();
-                if (!id) return null;
-
-                const name =
-                    buildPersonName(t, "last_name", "first_name", "middle_name") ||
-                    String(t.teacher_name || t.name || id).trim();
-
-                return {
-                    teacher_id: id,
-                    teacher_name: name,
-                    qualification_code: t.qualification_code,
-                    qualification_rank: t.qualification_rank
-                };
-            })
-            .filter(Boolean);
-
-        state.teacherAssignments = assignmentsRaw;
-
-        SBI.log("Учителей загружено: " + state.allTeachers.length);
-        SBI.log("Назначений учителей: " + state.teacherAssignments.length);
-
-        state.gradesRaw = gradesRaw;
-
-        // 7. Посещаемость
-        state.attendanceRows = [];
-        state.attendanceTerms = [];
-        state.attendanceClasses = [];
-
-        const studentNameById = {};
-        (state.allRows || []).forEach(r => {
-            const sid = (r.student_id || "").toString().trim();
-            const nm  = (r.student_name || "").toString().trim();
-            if (sid && nm && !studentNameById[sid]) {
-                studentNameById[sid] = nm;
-            }
-        });
-
-        function findSheetNameInsensitive(candidates) {
-            const names = workbook.SheetNames || [];
-            const upperCandidates = candidates.map(c => c.toUpperCase());
-            for (let i = 0; i < names.length; i++) {
-                const n = names[i];
-                if (upperCandidates.includes(n.toString().trim().toUpperCase())) {
-                    return n;
-                }
-            }
-            return null;
-        }
-
-        const attSheetName = findSheetNameInsensitive([
-            "Посещаемость",
-            "ПОСЕЩАЕМОСТЬ",
-            "ATTENDANCE"
-        ]);
-
-        if (attSheetName && workbook.Sheets[attSheetName]) {
-            const rawAtt = XLSX.utils.sheet_to_json(
-                workbook.Sheets[attSheetName],
-                { defval: null }
-            );
-
-            state.attendanceRows = rawAtt.map(r => {
-                const student_id = (r.student_id || "").toString().trim();
-                const class_id   = (r.class_id   || "").toString().trim();
-                const term_id    = (r.term_id    || "").toString().trim();
-
-                return {
-                    attendance_id: (r.attendance_id || "").toString().trim(),
-                    student_id,
-                    student_name: studentNameById[student_id] || "",
-                    subject_id: (r.subject_id || "").toString().trim(),
-                    teacher_id: (r.teacher_id || "").toString().trim(),
-                    class_id,
-                    term_id,
-                    total_classes: toNumber(r.total_classes) ?? 0,
-                    present_classes: toNumber(r.present_classes) ?? 0,
-                    absent_excused_classes: toNumber(r.absent_excused_classes) ?? 0,
-                    absent_unexcused_classes: toNumber(r.absent_unexcused_classes) ?? 0,
-                    late_classes: toNumber(r.late_classes) ?? 0
-                };
-            });
-
-            state.attendanceTerms = SBI.unique(
-                state.attendanceRows.map(r => r.term_id)
-            );
-            state.attendanceClasses = SBI.unique(
-                state.attendanceRows.map(r => r.class_id)
-            );
-
-            SBI.log("Строк посещаемости загружено из '" + attSheetName + "': " +
-                state.attendanceRows.length);
-        } else {
-            SBI.log("⚠️ Лист посещаемости не найден (Посещаемость/ПОСЕЩАЕМОСТЬ/ATTENDANCE).");
-        }
+        /* ------------------------------------------------------
+           УВЕДОМЛЯЕМ ВСЕ ДАШБОРДЫ
+        ------------------------------------------------------ */
 
         SBI.setStatus("Данные загружены успешно.");
 
-        // 8. Уведомление дашбордов
         if (window.SBI_Overview)  SBI_Overview.onDataLoaded();
         if (window.SBI_Class)     SBI_Class.onDataLoaded();
         if (window.SBI_Subject)   SBI_Subject.onDataLoaded();

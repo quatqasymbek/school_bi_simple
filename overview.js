@@ -172,6 +172,7 @@ window.SBI_Overview = (function () {
             x,
             y,
             type: "bar",
+            marker: { color: "#2b7bba" },
             text: metric === "quality"
                 ? y.map(v => (v != null ? v.toFixed(1) + "%" : ""))
                 : y.map(v => (v != null ? v.toFixed(2) : "")),
@@ -179,9 +180,12 @@ window.SBI_Overview = (function () {
         }], {
             title,
             xaxis: { title: "Класс" },
-            yaxis: { title: yTitle }
+            yaxis: { title: yTitle },
+            margin: { t: 40, l: 50, r: 10, b: 50 }
         });
     }
+
+    // ───────────────── HEATMAP: более подробная ─────────────────
 
     function renderHeatmap() {
         if (!heatmapEl) return;
@@ -196,19 +200,55 @@ window.SBI_Overview = (function () {
         ).sort((a, b) => a - b);
 
         const z = [];
+        const textShort = [];
+        const hoverText = [];
         const yLabels = grades.map(g => g + " класс");
 
         grades.forEach(g => {
-            const rowZ = [];
+            const zRow = [];
+            const textRow = [];
+            const hoverRow = [];
+
             terms.forEach(t => {
                 const subset = rows.filter(r =>
                     r.grade === g &&
                     String(r.term).trim() === t
                 );
-                const q = SBI.knowledgeRatio(subset);
-                rowZ.push(q != null ? Math.round(q * 100) : null);
+
+                if (!subset.length) {
+                    zRow.push(null);
+                    textRow.push("");
+                    hoverRow.push(`Класс ${g}, ${t}<br>Нет данных`);
+                    return;
+                }
+
+                const qRatio = SBI.knowledgeRatio(subset);
+                const qPercent = qRatio != null ? qRatio * 100 : null;
+
+                const vals = subset
+                    .map(r => SBI.toNumber(r.final_5scale))
+                    .filter(v => v != null && !Number.isNaN(v));
+                const avgGrade = SBI.mean(vals);
+
+                const studentCount = SBI.unique(subset.map(r => r.student_id)).length;
+
+                const qStr   = qPercent != null ? qPercent.toFixed(1) + "%" : "нет данных";
+                const avgStr = avgGrade  != null ? avgGrade.toFixed(2)       : "—";
+
+                zRow.push(qPercent != null ? qPercent : null);
+                textRow.push(qPercent != null ? qPercent.toFixed(0) + "%" : "");
+
+                hoverRow.push(
+                    `Класс ${g}, ${t}` +
+                    `<br>Качество знаний: <b>${qStr}</b>` +
+                    `<br>Средний балл: <b>${avgStr}</b>` +
+                    `<br>Учащихся: <b>${studentCount}</b>`
+                );
             });
-            z.push(rowZ);
+
+            z.push(zRow);
+            textShort.push(textRow);
+            hoverText.push(hoverRow);
         });
 
         Plotly.newPlot(heatmapEl, [{
@@ -216,15 +256,22 @@ window.SBI_Overview = (function () {
             x: terms,
             y: yLabels,
             type: "heatmap",
-            colorscale: "YlGn",
-            colorbar: { title: "% 4–5" }
+            colorscale: "YlOrRd",
+            zmin: 0,
+            zmax: 100,
+            colorbar: { title: "% 4–5" },
+            text: textShort,
+            customdata: hoverText,
+            hovertemplate: "%{customdata}<extra></extra>"
         }], {
             title: "Качество знаний по четвертям и классам (1–11)",
             xaxis: { title: "Четверть" },
-            yaxis: { title: "Класс" },
-            margin: { l: 80, r: 20, t: 40, b: 40 }
+            yaxis: { title: "Класс", automargin: true },
+            margin: { l: 80, r: 20, t: 50, b: 60 }
         });
     }
+
+    // ───────────────── DONUT: аккуратный и без налезания ─────────────────
 
     function renderPie() {
         if (!pieEl) return;
@@ -242,16 +289,39 @@ window.SBI_Overview = (function () {
             "Двоечники (есть 2)"
         ];
         const values = [excellent, good, three, two];
+        const total  = values.reduce((a, b) => a + b, 0);
 
         Plotly.newPlot(pieEl, [{
             labels,
             values,
             type: "pie",
-            textinfo: "label+percent",
-            hole: 0.35
+            hole: 0.5,
+            sort: false,
+            direction: "clockwise",
+            marker: {
+                colors: ["#2ecc71", "#3498db", "#f1c40f", "#e74c3c"]
+            },
+            textinfo: "percent",
+            textposition: "inside",
+            textfont: { size: 12 },
+            hovertemplate: "%{label}<br>Уч-ся: %{value} (%{percent})<extra></extra>"
         }], {
             title: "Структура успеваемости за четверть " + term,
-            legend: { orientation: "h", y: -0.1 }
+            showlegend: true,
+            legend: {
+                orientation: "h",
+                y: -0.1,
+                x: 0.5,
+                xanchor: "center"
+            },
+            margin: { t: 50, b: 70, l: 0, r: 0 },
+            annotations: total ? [{
+                showarrow: false,
+                text: `Всего<br>${total}`,
+                x: 0.5,
+                y: 0.5,
+                font: { size: 13 }
+            }] : []
         });
     }
 
@@ -276,8 +346,9 @@ window.SBI_Overview = (function () {
             termSelect.innerHTML = "";
             (state.allTerms || []).forEach(t => {
                 const opt = document.createElement("option");
-                opt.value = String(t).trim();
-                opt.textContent = String(t).trim();
+                const tidy = String(t).trim();
+                opt.value = tidy;
+                opt.textContent = tidy;
                 termSelect.appendChild(opt);
             });
             if (state.allTerms.length) {

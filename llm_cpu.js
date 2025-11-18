@@ -1,5 +1,6 @@
 // llm_cpu.js
-// Shared in-browser LLM helper using WebLLM + Llama-3.2-3B-Instruct
+// Общий помощник для локального LLM (Llama 3.2 3B Instruct) через WebLLM
+// Работает целиком в браузере, без сервера и без ключей API.
 
 (function (global) {
     const MODEL_ID = "Llama-3.2-3B-Instruct-q4f16_1-MLC";
@@ -16,14 +17,14 @@
     }
 
     /**
-     * Ensure WebLLM engine is loaded for the Llama-3.2-3B-Instruct model.
-     * Returns a Promise<engine>.
+     * Загружает WebLLM и инициализирует движок c моделью Llama 3.2 3B Instruct.
+     * Возвращает Promise<engine>.
      */
     async function ensureEngine(onProgress) {
         if (engine) return engine;
 
         if (loading) {
-            // Wait until existing load finishes
+            // Если уже идёт загрузка — просто ждём её завершения
             while (loading && !engine) {
                 await new Promise(function (resolve) { setTimeout(resolve, 300); });
             }
@@ -41,17 +42,19 @@
 
             onProgress("Инициализация WebLLM…");
 
-            // Load WebLLM from CDN (ESM)
-            // Pin to a known version for stability
-            // See docs: https://webllm.mlc.ai :contentReference[oaicite:2]{index=2}
+            // Динамический импорт WebLLM (ESM) с CDN
             webllmModule = await import("https://esm.run/@mlc-ai/web-llm@0.2.79");
 
             onProgress("Загружается модель: " + MODEL_ID);
 
             const initProgressCallback = function (progress) {
+                // progress.progress от 0 до 1
+                const percent = progress && typeof progress.progress === "number"
+                    ? Math.round(progress.progress * 100)
+                    : 0;
                 const msg = "Загрузка модели: " +
-                    Math.round((progress.progress || 0) * 100) + "% (" +
-                    (progress.text || "") + ")";
+                    percent + "% " +
+                    (progress && progress.text ? "(" + progress.text + ")" : "");
                 lastProgressText = msg;
                 onProgress(msg);
             };
@@ -64,7 +67,7 @@
             onProgress("Модель Llama 3.2 3B Instruct загружена и готова к работе.");
             return engine;
         } catch (err) {
-            defaultLog("[LLM] error during init:", err);
+            defaultLog("[LLM] Ошибка инициализации:", err);
             lastProgressText = "Ошибка инициализации модели.";
             throw err;
         } finally {
@@ -73,11 +76,12 @@
     }
 
     /**
-     * High-level helper to get an interpretation.
+     * Универсальная функция интерпретации агрегированных данных дашбордов.
+     *
      * options: {
-     *   context: string,          // e.g. "overview_dashboard"
-     *   data: object,             // aggregated JSON ONLY
-     *   userInstruction?: string, // extra text for the LLM
+     *   context: string,          // например "overview_dashboard"
+     *   data: object,             // только агрегированные данные
+     *   userInstruction?: string, // дополнительные указания
      *   temperature?: number,
      *   maxTokens?: number,
      *   onProgress?: (msg:string) => void
@@ -100,23 +104,23 @@
 
         const systemPrompt = [
             "Ты — аналитик данных школьной успеваемости.",
-            "Тебе даются только агрегированные данные из дашборда в виде JSON.",
+            "Тебе даются только агрегированные (уже посчитанные) данные в формате JSON.",
             "Используй ТОЛЬКО эти числа и структуры.",
             "Не придумывай новые точные проценты или значения, которых нет в JSON.",
-            "Можно описывать тенденции (выше/ниже, растёт/падает), но без фиктивных цифр."
+            "Можно описывать тенденции (выше/ниже, растёт/падает), но без вымышленных цифр."
         ].join(" ");
 
         const userPrompt =
             "Контекст дашборда: " + context + "\n\n" +
-            "Агрегированные данные в формате JSON:\n" +
+            "Агрегированные данные (JSON):\n" +
             jsonData + "\n\n" +
             (userInstruction || (
                 "Сделай, пожалуйста, интерпретацию этих данных:\n" +
                 "1) Кратко опиши общую картину успеваемости.\n" +
                 "2) Выдели сильные стороны.\n" +
                 "3) Укажи возможные зоны риска.\n" +
-                "4) Дай 3–5 практических рекомендаций для педагогов и администрации.\n" +
-                "Пиши по-русски, структурировано, читабельно, но без чрезмерной длины."
+                "4) Дай 3–5 практических рекомендаций для педагогов/администрации.\n" +
+                "Пиши по-русски, структурированно, читабельно, но без лишней воды."
             ));
 
         const messages = [
@@ -146,7 +150,7 @@
                 }
             }
         } catch (e) {
-            defaultLog("[LLM] parsing reply error:", e);
+            defaultLog("[LLM] Ошибка парсинга ответа:", e);
         }
 
         if (!text) {
@@ -157,6 +161,7 @@
         return text.trim();
     }
 
+    // Экспортируем в глобальный объект
     global.SBI_LLM = {
         ensureEngine: ensureEngine,
         interpret: interpret,

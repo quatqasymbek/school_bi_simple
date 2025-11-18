@@ -19,9 +19,9 @@ window.SBI_Class = (function () {
     function buildTeacherName(row) {
         if (!row) return "";
         const parts = [
-            row.last_name != null ? String(row.last_name).trim() : "",
+            row.last_name  != null ? String(row.last_name).trim()  : "",
             row.first_name != null ? String(row.first_name).trim() : "",
-            row.middle_name != null ? String(row.middle_name).trim() : ""
+            row.middle_name!= null ? String(row.middle_name).trim(): ""
         ].filter(Boolean);
         return parts.join(" ");
     }
@@ -32,11 +32,6 @@ window.SBI_Class = (function () {
         if (!tid) return "";
         const tr = teachersIndex[tid];
         return buildTeacherName(tr) || tid;
-    }
-
-    // Качество знаний для поднабора строк
-    function computeQuality(rows) {
-        return SBI.knowledgeRatio(rows); // возвращает 0..1 или null
     }
 
     // Категоризация учащихся по классу и четверти
@@ -76,6 +71,15 @@ window.SBI_Class = (function () {
         return { excellent, good, three, two };
     }
 
+    // Качество знаний для поднабора строк:
+    // доля учеников, у которых НЕТ 2–3 (только отличники + хорошисты)
+    function computeQuality(rows) {
+        const { excellent, good, three, two } = classifyStudents(rows);
+        const total = excellent + good + three + two;
+        if (!total) return null;
+        return (excellent + good) / total; // 0..1
+    }
+
     // ------------------------------------------
     // ВЕРХНЯЯ ТАБЛИЦА ПО ВСЕМ КЛАССАМ
     // ------------------------------------------
@@ -89,9 +93,9 @@ window.SBI_Class = (function () {
             return;
         }
 
-        const classes = state.classesTable || [];
+        const classes  = state.classesTable || [];
         const teachers = state.teachers || [];
-        const terms = state.allTerms || [];
+        const terms    = state.allTerms || [];
 
         // Индекс учителей по id
         const teachersIndex = {};
@@ -101,13 +105,14 @@ window.SBI_Class = (function () {
             teachersIndex[id] = t;
         });
 
-        // Для быстрого фильтра: группируем по (class_id, term_id)
+        // Для быстрого фильтра: группируем по (класс, четверть)
+        // КЛЮЧ = "label|term", где label = человекопонятное название класса
         const byClassTerm = {};
         rows.forEach(r => {
-            const cid = String(r.class_id || "").trim();
-            const tid = String(r.term_id || r.term || "").trim();
-            if (!cid || !tid) return;
-            const key = cid + "|" + tid;
+            const label = String(r.class || r.class_id || "").trim();
+            const tid   = String(r.term_id || r.term || "").trim();
+            if (!label || !tid) return;
+            const key = label + "|" + tid;
             if (!byClassTerm[key]) byClassTerm[key] = [];
             byClassTerm[key].push(r);
         });
@@ -132,7 +137,7 @@ window.SBI_Class = (function () {
                 <tbody>
         `;
 
-        // сортируем классы по названию (чтобы 1А..11Б)
+        // сортируем классы по названию (1 «А» … 11 «Б»)
         const sortedClasses = [...classes].sort((a, b) => {
             const an = String(a.class_name || a.class_id || "");
             const bn = String(b.class_name || b.class_id || "");
@@ -140,11 +145,11 @@ window.SBI_Class = (function () {
         });
 
         sortedClasses.forEach(cls => {
-            const cid = String(cls.class_id || "").trim();
-            if (!cid) return;
+            const label = String(cls.class_name || cls.class_id || "").trim();
+            if (!label) return;
 
-            const className = cls.class_name || cid;
-            const homeroomName = getHomeroomTeacherName(cls, teachersIndex);
+            const className     = label;
+            const homeroomName  = getHomeroomTeacherName(cls, teachersIndex);
 
             html += `
                 <tr>
@@ -153,7 +158,7 @@ window.SBI_Class = (function () {
             `;
 
             terms.forEach(tid => {
-                const key = cid + "|" + tid;
+                const key = label + "|" + tid;
                 const subset = byClassTerm[key] || [];
                 if (!subset.length) {
                     html += `<td>n/a</td>`;
@@ -191,7 +196,7 @@ window.SBI_Class = (function () {
             return;
         }
 
-        const term = termSelect && termSelect.value ? termSelect.value : null;
+        const term    = termSelect  && termSelect.value  ? termSelect.value  : null;
         const classId = classSelect && classSelect.value ? classSelect.value : null;
 
         if (!term || !classId) {
@@ -201,7 +206,7 @@ window.SBI_Class = (function () {
 
         const subset = allRows.filter(r =>
             String(r.term_id || r.term || "").trim() === String(term).trim() &&
-            String(r.class_id || "").trim() === String(classId).trim()
+            String(r.class || r.class_id || "").trim() === String(classId).trim()
         );
 
         if (!subset.length) {
@@ -232,8 +237,12 @@ window.SBI_Class = (function () {
     }
 
     function getClassNameById(classId) {
-        const cls = (state.classesTable || []).find(c => String(c.class_id || "").trim() === String(classId).trim());
-        return cls ? (cls.class_name || classId) : classId;
+        const cls = (state.classesTable || []).find(c =>
+            String(c.class_id || "").trim() === String(classId).trim() ||
+            String(c.class_name || "").trim() === String(classId).trim()
+        );
+        if (cls) return cls.class_name || cls.class_id || classId;
+        return classId;
     }
 
     // ------------------------------------------
@@ -273,7 +282,7 @@ window.SBI_Class = (function () {
             }
         }
 
-        // селектор классов
+        // селектор классов — значение = человекопонятное название класса
         if (classSelect) {
             classSelect.innerHTML = "";
             const classes = state.classesTable || [];
@@ -284,11 +293,11 @@ window.SBI_Class = (function () {
             });
 
             sortedClasses.forEach(cls => {
-                const cid = String(cls.class_id || "").trim();
-                if (!cid) return;
+                const label = String(cls.class_name || cls.class_id || "").trim();
+                if (!label) return;
                 const opt = document.createElement("option");
-                opt.value = cid;
-                opt.textContent = cls.class_name || cid;
+                opt.value = label;
+                opt.textContent = label;
                 classSelect.appendChild(opt);
             });
         }
@@ -301,7 +310,8 @@ window.SBI_Class = (function () {
 
         // очистим лишние блоки (можно использовать в будущем)
         if (trendContainer) {
-            trendContainer.innerHTML = "<p style='font-size:13px;color:#666;'>Здесь позже можно добавить график динамики по классам.</p>";
+            trendContainer.innerHTML =
+                "<p style='font-size:13px;color:#666;'>Здесь позже можно добавить график динамики по классам.</p>";
         }
         if (heatmapContainer) {
             heatmapContainer.innerHTML = "";

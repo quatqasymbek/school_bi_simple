@@ -31,6 +31,9 @@ function buildClassLabel(row) {
     return String(row.class_id || `K-${grade}${section || ""}`).trim();
 }
 
+// короткий алиас
+const toNumber = SBI.toNumber;
+
 /* --------- Обработка загрузки Excel --------- */
 
 if (fileInput) {
@@ -148,26 +151,32 @@ if (fileInput) {
             if (!row) return defaults;
 
             return {
-                w_fo: Number(row.w_fo ?? row.fo_weight ?? defaults.w_fo),
-                w_sor: Number(row.w_sor ?? row.sor_weight ?? defaults.w_sor),
-                w_soch: Number(row.w_soch ?? row.soch_weight ?? defaults.w_soch)
+                w_fo: toNumber(row.w_fo ?? row.fo_weight) ?? defaults.w_fo,
+                w_sor: toNumber(row.w_sor ?? row.sor_weight) ?? defaults.w_sor,
+                w_soch: toNumber(row.w_soch ?? row.soch_weight) ?? defaults.w_soch
             };
         }
 
         // 4. Шкала 5-балльной системы
         const scale = scaleRaw
-            .map(r => ({
-                min: Number(r.min_percent ?? r.threshold ?? 0),
-                grade: Number(r.grade_5pt ?? r.grade ?? r.mark ?? null)
-            }))
-            .filter(r => !Number.isNaN(r.min) && r.grade != null)
+            .map(r => {
+                let min = toNumber(r.min_percent ?? r.threshold ?? r.percent_min);
+                if (min == null) return null;
+                // поддержка формата 0.8 → 80%
+                if (min <= 1) min = min * 100;
+                const grade = toNumber(r.grade_5pt ?? r.grade ?? r.mark);
+                if (grade == null) return null;
+                return { min, grade };
+            })
+            .filter(Boolean)
             .sort((a, b) => a.min - b.min);
 
         function mapPercentTo5pt(pct) {
-            if (pct == null || Number.isNaN(pct)) return null;
+            const p = toNumber(pct);
+            if (p == null) return null;
             let result = null;
             for (let i = 0; i < scale.length; i++) {
-                if (pct >= scale[i].min) {
+                if (p >= scale[i].min) {
                     result = scale[i].grade;
                 }
             }
@@ -178,31 +187,32 @@ if (fileInput) {
         const analyticRows = [];
 
         if (termResultsRaw.length) {
+            // Вариант: уже есть готовый ИТОГ_ЧЕТВЕРТИ
             SBI.log("Используем лист ИТОГ_ЧЕТВЕРТИ как источник четвертных оценок.");
 
             termResultsRaw.forEach(r => {
                 const student_id = String(r.student_id || "").trim();
                 const subject_id = String(r.subject_id || "").trim();
-                const term_id = String(r.term_id || "").trim();
-                const class_id = String(r.class_id || r.current_class_id || "").trim() || null;
+                const term_id    = String(r.term_id    || "").trim();
+                const class_id   = String(r.class_id || r.current_class_id || "").trim() || null;
 
                 if (!student_id || !subject_id || !term_id) return;
 
                 const student = idx_students[student_id] || {};
-                const cls = class_id ? (idx_classes[class_id] || {}) : {};
-                const subj = idx_subjects[subject_id] || {};
-                const term = idx_terms[term_id] || {};
+                const cls     = class_id ? (idx_classes[class_id] || {}) : {};
+                const subj    = idx_subjects[subject_id] || {};
+                const term    = idx_terms[term_id] || {};
 
                 const student_name = buildPersonName(student);
-                const class_name = buildClassLabel(cls);
+                const class_name   = buildClassLabel(cls);
                 const subject_name = String(subj.subject_name || subj.name || subject_id).trim();
-                const term_name = String(term.term_id || term.name || term_id).trim();
-                const grade_num = cls.grade ?? cls.grade_num ?? cls.grade_number ?? null;
+                const term_name    = String(term.term_id || term.name || term_id).trim();
+                const grade_num    = cls.grade ?? cls.grade_num ?? cls.grade_number ?? null;
 
-                const final_percent = r.final_percent != null ? Number(r.final_percent) : null;
+                const final_percent = toNumber(r.final_percent);
                 const final_5scale =
-                    r.final_5pt     != null ? Number(r.final_5pt) :
-                    r.final_5scale  != null ? Number(r.final_5scale) :
+                    toNumber(r.final_5pt) ??
+                    toNumber(r.final_5scale) ??
                     mapPercentTo5pt(final_percent);
 
                 const knowledge_quality =
@@ -224,6 +234,7 @@ if (fileInput) {
                 });
             });
         } else {
+            // Основной путь: считаем четвертные из ОЦЕНКИ
             SBI.log("Вычисляем четвертные оценки из ОЦЕНКИ + ВЕСА_ОЦЕНОК + ШКАЛА_5Б.");
 
             const byTypeKey = {}; // s|subj|term|type → [percent]
@@ -236,12 +247,24 @@ if (fileInput) {
 
                 if (!student_id || !subject_id || !term_id || !work_type) return;
 
-                const key = student_id + "|" + subject_id + "|" + term_id + "|" + work_type;
+                const key = `${student_id}|${subject_id}|${term_id}|${work_type}`;
                 if (!byTypeKey[key]) byTypeKey[key] = [];
 
-                const pct = r.percent != null
-                    ? Number(r.percent)
-                    : (r.score_percent != null ? Number(r.score_percent) : null);
+                // В Excel percent хранится как 0,81 (доля) → умножаем на 100
+                let pct = null;
+
+                if (r.percent != null) {
+                    const frac = toNumber(r.percent);   // 0.81
+                    if (frac != null) pct = frac * 100; // 81
+                } else if (r.score_percent != null) {
+                    pct = toNumber(r.score_percent);    // уже в процентах
+                } else if (r.score != null && r.max_score != null) {
+                    const score = toNumber(r.score);
+                    const max   = toNumber(r.max_score);
+                    if (score != null && max != null && max > 0) {
+                        pct = (score / max) * 100;
+                    }
+                }
 
                 if (pct != null && !Number.isNaN(pct)) {
                     byTypeKey[key].push(pct);
@@ -251,18 +274,14 @@ if (fileInput) {
             const perPST = {}; // s|subj|term → { student_id, subject_id, term_id, typeAvgs }
 
             Object.keys(byTypeKey).forEach(key => {
-                const parts = key.split("|");
-                const student_id = parts[0];
-                const subject_id = parts[1];
-                const term_id = parts[2];
-                const rawType = parts[3];
+                const [student_id, subject_id, term_id, rawType] = key.split("|");
+                const pstKey = `${student_id}|${subject_id}|${term_id}`;
 
-                const pstKey = student_id + "|" + subject_id + "|" + term_id;
                 if (!perPST[pstKey]) {
                     perPST[pstKey] = {
-                        student_id: student_id,
-                        subject_id: subject_id,
-                        term_id: term_id,
+                        student_id,
+                        subject_id,
+                        term_id,
                         typeAvgs: {}
                     };
                 }
@@ -280,10 +299,7 @@ if (fileInput) {
 
             Object.keys(perPST).forEach(pstKey => {
                 const item = perPST[pstKey];
-                const student_id = item.student_id;
-                const subject_id = item.subject_id;
-                const term_id = item.term_id;
-                const typeAvgs = item.typeAvgs;
+                const { student_id, subject_id, term_id, typeAvgs } = item;
 
                 const weights = getWeights(subject_id, term_id);
                 const partsArr = [];
@@ -296,6 +312,7 @@ if (fileInput) {
                 const totalW = partsArr.reduce((s, p) => s + p.w, 0) || 1;
                 const final_percent = partsArr.reduce((s, p) => s + p.avg * p.w, 0) / totalW;
 
+                // попробуем восстановить class_id по любому ряду ОЦЕНКИ
                 let class_id = null;
                 const anyGradeRow = gradesRaw.find(r =>
                     String(r.student_id || "").trim() === student_id &&
@@ -438,11 +455,11 @@ if (fileInput) {
                     teacher_id: (r.teacher_id || "").toString().trim(),
                     class_id,
                     term_id,
-                    total_classes: Number(r.total_classes ?? 0),
-                    present_classes: Number(r.present_classes ?? 0),
-                    absent_excused_classes: Number(r.absent_excused_classes ?? 0),
-                    absent_unexcused_classes: Number(r.absent_unexcused_classes ?? 0),
-                    late_classes: Number(r.late_classes ?? 0)
+                    total_classes: toNumber(r.total_classes) ?? 0,
+                    present_classes: toNumber(r.present_classes) ?? 0,
+                    absent_excused_classes: toNumber(r.absent_excused_classes) ?? 0,
+                    absent_unexcused_classes: toNumber(r.absent_unexcused_classes) ?? 0,
+                    late_classes: toNumber(r.late_classes) ?? 0
                 };
             });
 

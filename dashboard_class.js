@@ -4,293 +4,314 @@ console.log("dashboard_class.js загружен");
 window.SBI_Class = (function () {
     const state = SBI.state;
 
-    let termSelect, subjectSelect, classSelect;
-    let chartAvg, chartDist, chartTrend, chartHeatmap;
+    let termSelect;
+    let classSelect;
 
-    function init() {
-        termSelect    = document.getElementById("classTermSelect");
-        subjectSelect = document.getElementById("classSubjectSelect");
-        classSelect   = document.getElementById("classClassSelect");
+    let summaryContainer;   // верхняя таблица по всем классам
+    let pieContainer;       // круговая диаграмма
+    let trendContainer;     // пока не используем (можно для будущих графиков)
+    let heatmapContainer;   // пока не используем
 
-        chartAvg      = document.getElementById("chart-class-avg");
-        chartDist     = document.getElementById("chart-class-dist");
-        chartTrend    = document.getElementById("chart-class-trend");
-        chartHeatmap  = document.getElementById("chart-class-heatmap");
+    // ------------------------------------------
+    // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+    // ------------------------------------------
 
-        if (termSelect)    termSelect.onchange    = update;
-        if (subjectSelect) subjectSelect.onchange = update;
-        if (classSelect)   classSelect.onchange   = update;
+    function buildTeacherName(row) {
+        if (!row) return "";
+        const parts = [
+            row.last_name != null ? String(row.last_name).trim() : "",
+            row.first_name != null ? String(row.first_name).trim() : "",
+            row.middle_name != null ? String(row.middle_name).trim() : ""
+        ].filter(Boolean);
+        return parts.join(" ");
     }
 
-    function populateFilters() {
-        const rows = state.allRows || [];
-        if (!rows.length) return;
-
-        if (termSelect) {
-            termSelect.innerHTML = "";
-            const optAll = document.createElement("option");
-            optAll.value = "";
-            optAll.textContent = "Все четверти";
-            termSelect.appendChild(optAll);
-            (state.allTerms || []).forEach(function (t) {
-                const opt = document.createElement("option");
-                opt.value = t;
-                opt.textContent = t;
-                termSelect.appendChild(opt);
-            });
-        }
-
-        if (subjectSelect) {
-            subjectSelect.innerHTML = "";
-            const optAll = document.createElement("option");
-            optAll.value = "";
-            optAll.textContent = "Все предметы";
-            subjectSelect.appendChild(optAll);
-            (state.allSubjects || []).forEach(function (s) {
-                const opt = document.createElement("option");
-                opt.value = s;
-                opt.textContent = s;
-                subjectSelect.appendChild(opt);
-            });
-        }
-
-        if (classSelect) {
-            classSelect.innerHTML = "";
-            const optAll = document.createElement("option");
-            optAll.value = "";
-            optAll.textContent = "Все классы";
-            classSelect.appendChild(optAll);
-            (state.allClasses || []).forEach(function (c) {
-                const opt = document.createElement("option");
-                opt.value = c;
-                opt.textContent = c;
-                classSelect.appendChild(opt);
-            });
-        }
+    function getHomeroomTeacherName(classRow, teachersIndex) {
+        if (!classRow) return "";
+        const tid = String(classRow.homeroom_teacher_id || "").trim();
+        if (!tid) return "";
+        const tr = teachersIndex[tid];
+        return buildTeacherName(tr) || tid;
     }
 
-    function filterRows() {
-        const rows = state.allRows || [];
-        if (!rows.length) return [];
-
-        const termVal    = termSelect ? termSelect.value : "";
-        const subjectVal = subjectSelect ? subjectSelect.value : "";
-        const classVal   = classSelect ? classSelect.value : "";
-
-        return rows.filter(function (r) {
-            if (termVal && r.term !== termVal) return false;
-            if (subjectVal && r.subject !== subjectVal) return false;
-            if (classVal && r.class !== classVal) return false;
-            return true;
-        });
+    // Качество знаний для поднабора строк
+    function computeQuality(rows) {
+        return SBI.knowledgeRatio(rows); // возвращает 0..1 или null
     }
 
-    function computeClassStats(rowsForRanking) {
-        const grouped = SBI.groupBy(rowsForRanking, function (r) { return r.class; }, function (r) { return r; });
+    // Категоризация учащихся по классу и четверти
+    function classifyStudents(rows) {
+        const byStudent = SBI.groupBy(
+            rows,
+            r => r.student_id,
+            r => Number(r.final_5scale)
+        );
 
-        const stats = Object.keys(grouped).map(function (cls) {
-            const clsRows = grouped[cls];
-            const grades = clsRows.map(function (r) {
-                return Number(r.final_percent ?? r.final_5scale ?? NaN);
-            }).filter(function (v) { return !Number.isNaN(v); });
+        let excellent = 0; // только 5
+        let good = 0;      // 4–5, без 3 и 2
+        let three = 0;     // есть 3, но нет 2
+        let two = 0;       // есть 2
 
-            const avg = SBI.mean(grades);
-            const std = SBI.std(grades);
-            const n   = clsRows.length;
-            const quality = SBI.knowledgeRatio(clsRows);
+        Object.keys(byStudent).forEach(sid => {
+            const grades = byStudent[sid].filter(g => !Number.isNaN(g));
+            if (!grades.length) return;
 
-            return { class: cls, avg: avg, std: std, n: n, quality: quality };
-        }).filter(function (s) {
-            return s.avg != null;
-        }).sort(function (a, b) {
-            return b.avg - a.avg;
-        });
+            const has2 = grades.some(g => g === 2);
+            const has3 = grades.some(g => g === 3);
+            const has4 = grades.some(g => g === 4);
+            const has5 = grades.some(g => g === 5);
+            const all5 = grades.every(g => g === 5);
 
-        return stats;
-    }
-
-    function renderClassRanking(allFilteredRows) {
-        if (!chartAvg) return;
-
-        // Для рейтинга классов не ограничиваем выбранным "классом"
-        const termVal    = termSelect ? termSelect.value : "";
-        const subjectVal = subjectSelect ? subjectSelect.value : "";
-
-        const rows = (state.allRows || []).filter(function (r) {
-            if (termVal && r.term !== termVal) return false;
-            if (subjectVal && r.subject !== subjectVal) return false;
-            return true;
-        });
-
-        const stats = computeClassStats(rows);
-        SBI.log("По классам → строк для рейтинга: " + rows.length + ", классов: " + stats.length);
-
-        if (!stats.length) {
-            Plotly.newPlot(chartAvg, [], {
-                title: "Нет данных для выбранных фильтров",
-                xaxis: { title: "Класс" },
-                yaxis: { title: "Средний балл" }
-            });
-            return;
-        }
-
-        const x = stats.map(function (s) { return s.class; });
-        const y = stats.map(function (s) { return s.avg; });
-        const q = stats.map(function (s) { return s.quality != null ? s.quality : 0; });
-        const n = stats.map(function (s) { return s.n; });
-
-        Plotly.newPlot(chartAvg, [{
-            x: x,
-            y: y,
-            type: "bar",
-            customdata: q,
-            text: n,
-            hovertemplate:
-                "Класс: %{x}<br>" +
-                "Средний балл: %{y:.2f}<br>" +
-                "Качество знаний: %{customdata:.0%}<br>" +
-                "Количество записей: %{text}<extra></extra>"
-        }], {
-            title: "Рейтинг классов по среднему баллу",
-            xaxis: { title: "Класс" },
-            yaxis: { title: "Средний балл", rangemode: "tozero" },
-            margin: { l: 50, r: 10, t: 40, b: 60 }
-        });
-    }
-
-    function renderDistribution(filteredRows) {
-        if (!chartDist) return;
-
-        if (!filteredRows.length) {
-            Plotly.newPlot(chartDist, [], {
-                title: "Нет данных для распределения оценок",
-                xaxis: { title: "Итоговая оценка" },
-                yaxis: { title: "Количество" }
-            });
-            return;
-        }
-
-        const values = filteredRows.map(function (r) {
-            return Number(r.final_percent ?? r.final_5scale ?? NaN);
-        }).filter(function (v) { return !Number.isNaN(v); });
-
-        Plotly.newPlot(chartDist, [{
-            x: values,
-            type: "histogram",
-            nbinsx: 20
-        }], {
-            title: "Распределение итоговых оценок (после фильтров)",
-            xaxis: { title: "Процент / балл" },
-            yaxis: { title: "Количество" }
-        });
-    }
-
-    function renderTrend(filteredRows) {
-        if (!chartTrend) return;
-
-        const cls = classSelect ? classSelect.value : "";
-        if (!cls) {
-            Plotly.newPlot(chartTrend, [], {
-                title: "Выберите конкретный класс, чтобы увидеть его динамику",
-                xaxis: { title: "Четверть" },
-                yaxis: { title: "Средний балл" }
-            });
-            return;
-        }
-
-        const rows = (state.allRows || []).filter(function (r) {
-            if (r.class !== cls) return false;
-            const subjectVal = subjectSelect ? subjectSelect.value : "";
-            if (subjectVal && r.subject !== subjectVal) return false;
-            return true;
-        });
-
-        const byTerm = SBI.groupBy(rows, function (r) { return r.term; }, function (r) {
-            return Number(r.final_percent ?? r.final_5scale ?? NaN);
-        });
-
-        const terms = (state.allTerms || []).slice();
-        const avg = terms.map(function (t) {
-            return SBI.mean(byTerm[t] || []);
-        });
-
-        Plotly.newPlot(chartTrend, [{
-            x: terms,
-            y: avg,
-            mode: "lines+markers"
-        }], {
-            title: "Динамика по классу " + cls,
-            xaxis: { title: "Четверть" },
-            yaxis: { title: "Средний балл" }
-        });
-    }
-
-    function renderHeatmap() {
-        if (!chartHeatmap) return;
-
-        const termVal    = termSelect ? termSelect.value : "";
-        const subjectVal = subjectSelect ? subjectSelect.value : "";
-
-        const rows = (state.allRows || []).filter(function (r) {
-            if (termVal && r.term !== termVal) return false;
-            if (subjectVal && r.subject !== subjectVal) return false;
-            return true;
-        });
-
-        const classes = SBI.unique(rows.map(function (r) { return r.class; })).sort();
-        const terms = SBI.unique(rows.map(function (r) { return r.term; })).sort();
-
-        const z = [];
-        for (let ci = 0; ci < classes.length; ci++) {
-            const cls = classes[ci];
-            const rowZ = [];
-            for (let ti = 0; ti < terms.length; ti++) {
-                const t = terms[ti];
-                const sub = rows.filter(function (r) {
-                    return r.class === cls && r.term === t;
-                });
-                const avg = SBI.mean(sub.map(function (r) {
-                    return Number(r.final_percent ?? r.final_5scale ?? NaN);
-                }).filter(function (v) { return !Number.isNaN(v); }));
-                rowZ.push(avg != null ? avg : null);
+            if (has2) {
+                two++;
+            } else if (has3) {
+                three++;
+            } else if (all5) {
+                excellent++;
+            } else if (has4 || has5) {
+                good++;
             }
-            z.push(rowZ);
+        });
+
+        return { excellent, good, three, two };
+    }
+
+    // ------------------------------------------
+    // ВЕРХНЯЯ ТАБЛИЦА ПО ВСЕМ КЛАССАМ
+    // ------------------------------------------
+
+    function renderClassSummaryTable() {
+        if (!summaryContainer) return;
+
+        const rows = state.allRows || [];
+        if (!rows.length) {
+            summaryContainer.innerHTML = "<p>Нет данных для отображения по классам.</p>";
+            return;
         }
 
-        Plotly.newPlot(chartHeatmap, [{
-            z: z,
-            x: terms,
-            y: classes,
-            type: "heatmap",
-            colorscale: "Blues"
+        const classes = state.classesTable || [];
+        const teachers = state.teachers || [];
+        const terms = state.allTerms || [];
+
+        // Индекс учителей по id
+        const teachersIndex = {};
+        teachers.forEach(t => {
+            const id = String(t.teacher_id || "").trim();
+            if (!id) return;
+            teachersIndex[id] = t;
+        });
+
+        // Для быстрого фильтра: группируем по (class_id, term_id)
+        const byClassTerm = {};
+        rows.forEach(r => {
+            const cid = String(r.class_id || "").trim();
+            const tid = String(r.term_id || r.term || "").trim();
+            if (!cid || !tid) return;
+            const key = cid + "|" + tid;
+            if (!byClassTerm[key]) byClassTerm[key] = [];
+            byClassTerm[key].push(r);
+        });
+
+        // Строим таблицу
+        let html = `
+            <h3>Качество знаний по всем классам</h3>
+            <table class="simple-table">
+                <thead>
+                    <tr>
+                        <th>Класс</th>
+                        <th>Классный руководитель</th>
+        `;
+
+        terms.forEach(t => {
+            html += `<th>${t}</th>`;
+        });
+
+        html += `
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        // сортируем классы по названию (чтобы 1А..11Б)
+        const sortedClasses = [...classes].sort((a, b) => {
+            const an = String(a.class_name || a.class_id || "");
+            const bn = String(b.class_name || b.class_id || "");
+            return an.localeCompare(bn, "ru");
+        });
+
+        sortedClasses.forEach(cls => {
+            const cid = String(cls.class_id || "").trim();
+            if (!cid) return;
+
+            const className = cls.class_name || cid;
+            const homeroomName = getHomeroomTeacherName(cls, teachersIndex);
+
+            html += `
+                <tr>
+                    <td>${className}</td>
+                    <td>${homeroomName || ""}</td>
+            `;
+
+            terms.forEach(tid => {
+                const key = cid + "|" + tid;
+                const subset = byClassTerm[key] || [];
+                if (!subset.length) {
+                    html += `<td>n/a</td>`;
+                } else {
+                    const q = computeQuality(subset);
+                    if (q == null) {
+                        html += `<td>n/a</td>`;
+                    } else {
+                        html += `<td>${Math.round(q * 100)}%</td>`;
+                    }
+                }
+            });
+
+            html += "</tr>";
+        });
+
+        html += `
+                </tbody>
+            </table>
+        `;
+
+        summaryContainer.innerHTML = html;
+    }
+
+    // ------------------------------------------
+    // КРУГОВАЯ ДИАГРАММА ПО ВЫБРАННОМУ КЛАССУ
+    // ------------------------------------------
+
+    function renderClassPie() {
+        if (!pieContainer) return;
+
+        const allRows = state.allRows || [];
+        if (!allRows.length) {
+            pieContainer.innerHTML = "<p>Нет данных для выбранных параметров.</p>";
+            return;
+        }
+
+        const term = termSelect && termSelect.value ? termSelect.value : null;
+        const classId = classSelect && classSelect.value ? classSelect.value : null;
+
+        if (!term || !classId) {
+            pieContainer.innerHTML = "<p>Выберите четверть и класс.</p>";
+            return;
+        }
+
+        const subset = allRows.filter(r =>
+            String(r.term_id || r.term || "").trim() === String(term).trim() &&
+            String(r.class_id || "").trim() === String(classId).trim()
+        );
+
+        if (!subset.length) {
+            pieContainer.innerHTML = "<p>Для этого класса и четверти пока нет итоговых оценок.</p>";
+            return;
+        }
+
+        const { excellent, good, three, two } = classifyStudents(subset);
+
+        const labels = [
+            "Отличники (только 5)",
+            "Хорошисты (4–5, без 3 и 2)",
+            "Троечники (есть 3, нет 2)",
+            "Двоечники (есть 2)"
+        ];
+        const values = [excellent, good, three, two];
+
+        Plotly.newPlot(pieContainer, [{
+            labels,
+            values,
+            type: "pie",
+            textinfo: "label+percent",
+            hole: 0.35
         }], {
-            title: "Тепловая карта: средний балл по классам и четвертям",
-            xaxis: { title: "Четверть" },
-            yaxis: { title: "Класс" }
+            title: `Структура успеваемости — класс ${getClassNameById(classId)} (${term})`,
+            legend: { orientation: "h", y: -0.1 }
         });
     }
 
-    function update() {
-        const filtered = filterRows();
-        renderClassRanking(filtered);
-        renderDistribution(filtered);
-        renderTrend(filtered);
-        renderHeatmap();
+    function getClassNameById(classId) {
+        const cls = (state.classesTable || []).find(c => String(c.class_id || "").trim() === String(classId).trim());
+        return cls ? (cls.class_name || classId) : classId;
+    }
+
+    // ------------------------------------------
+    // ИНИЦИАЛИЗАЦИЯ И ПОДПИСКА НА ДАННЫЕ
+    // ------------------------------------------
+
+    function initDom() {
+        termSelect       = document.getElementById("classTermSelect");
+        classSelect      = document.getElementById("classClassSelect");
+        summaryContainer = document.getElementById("chart-class-avg");
+        pieContainer     = document.getElementById("chart-class-dist");
+        trendContainer   = document.getElementById("chart-class-trend");
+        heatmapContainer = document.getElementById("chart-class-heatmap");
+
+        if (termSelect)  termSelect.addEventListener("change", renderClassPie);
+        if (classSelect) classSelect.addEventListener("change", renderClassPie);
     }
 
     function onDataLoaded() {
         const rows = state.allRows || [];
         if (!rows.length) {
-            SBI.log("Дашборд по классам: данных нет.");
+            SBI.log("По классам: нет данных для отображения.");
             return;
         }
-        populateFilters();
-        update();
+
+        // заполняем селектор четвертей
+        if (termSelect) {
+            termSelect.innerHTML = "";
+            (state.allTerms || []).forEach(t => {
+                const opt = document.createElement("option");
+                opt.value = t;
+                opt.textContent = t;
+                termSelect.appendChild(opt);
+            });
+            if (state.allTerms.length) {
+                termSelect.value = state.allTerms[state.allTerms.length - 1];
+            }
+        }
+
+        // селектор классов
+        if (classSelect) {
+            classSelect.innerHTML = "";
+            const classes = state.classesTable || [];
+            const sortedClasses = [...classes].sort((a, b) => {
+                const an = String(a.class_name || a.class_id || "");
+                const bn = String(b.class_name || b.class_id || "");
+                return an.localeCompare(bn, "ru");
+            });
+
+            sortedClasses.forEach(cls => {
+                const cid = String(cls.class_id || "").trim();
+                if (!cid) return;
+                const opt = document.createElement("option");
+                opt.value = cid;
+                opt.textContent = cls.class_name || cid;
+                classSelect.appendChild(opt);
+            });
+        }
+
+        // верхняя таблица
+        renderClassSummaryTable();
+
+        // круговая диаграмма
+        renderClassPie();
+
+        // очистим лишние блоки (можно использовать в будущем)
+        if (trendContainer) {
+            trendContainer.innerHTML = "<p style='font-size:13px;color:#666;'>Здесь позже можно добавить график динамики по классам.</p>";
+        }
+        if (heatmapContainer) {
+            heatmapContainer.innerHTML = "";
+        }
     }
 
-    init();
+    // сразу инициализируем DOM-ссылки
+    initDom();
 
     return {
-        onDataLoaded: onDataLoaded
+        onDataLoaded
     };
 })();

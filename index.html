@@ -99,7 +99,42 @@
             padding: 8px;
             margin: 0 20px 20px;
             border-radius: 6px;
-            display: none; /* скрыт */
+            display: none;
+        }
+
+        /* Карточки на главной */
+        .overview-cards {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .overview-card {
+            flex: 1;
+            min-width: 180px;
+            background: #ffffff;
+            border-radius: 10px;
+            padding: 12px 14px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        .overview-card-title {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .overview-card-value {
+            font-size: 22px;
+            font-weight: bold;
+            color: #2b4c7e;
+        }
+
+        .overview-card-sub {
+            font-size: 11px;
+            color: #888;
+            margin-top: 3px;
         }
 
         /* Блок для LLM */
@@ -133,40 +168,6 @@
             font-size: 12px;
             color: #555;
             margin-bottom: 8px;
-        }
-
-        /* Карточки на главной */
-        .overview-cards {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-
-        .overview-card {
-            flex: 1;
-            min-width: 160px;
-            background: #ffffff;
-            border-radius: 10px;
-            padding: 12px 14px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
-
-        .overview-card-title {
-            font-size: 13px;
-            color: #666;
-            margin-bottom: 4px;
-        }
-
-        .overview-card-value {
-            font-size: 22px;
-            font-weight: bold;
-            color: #2b4c7e;
-        }
-
-        .overview-card-sub {
-            font-size: 11px;
-            color: #888;
-            margin-top: 3px;
         }
 
         /* Простые таблички (в т.ч. посещаемость) */
@@ -223,15 +224,25 @@
     <h2>Общий обзор</h2>
     <p>После загрузки файла здесь появится сводка по школе.</p>
 
+    <div class="filters">
+        <label>Четверть:</label>
+        <select id="overviewTermSelect"></select>
+
+        <label>Показать:</label>
+        <select id="overviewMetricSelect">
+            <option value="quality">Качество знаний</option>
+            <option value="avg">Средний балл</option>
+        </select>
+    </div>
+
     <div id="overview-cards" class="overview-cards"></div>
+
+    <div class="chart-container" id="chart-overview-grade-bar"></div>
 
     <div class="chart-container" id="chart-overview-quality-heatmap"></div>
 
     <div class="chart-container">
-        <div class="filters">
-            <label>Четверть:</label>
-            <select id="overviewTermSelect"></select>
-        </div>
+        <h3>Структура успеваемости по выбранной четверти</h3>
         <div id="chart-overview-categories"></div>
     </div>
 
@@ -303,7 +314,6 @@
 <div id="attendance" class="page">
     <h2>Посещаемость</h2>
 
-    <!-- 1) Сводка по классам за выбранную четверть -->
     <div class="chart-container" id="chart-attendance-total">
         <div class="filters">
             <label>Четверть:</label>
@@ -312,7 +322,6 @@
         <div id="attSummaryTableWrapper"></div>
     </div>
 
-    <!-- 2) Детализация по ученикам выбранного класса и четверти -->
     <div class="chart-container" id="chart-attendance-class">
         <div class="filters">
             <label>Класс:</label>
@@ -341,14 +350,15 @@
 
 <!-- JS-модули -->
 <script src="utils.js"></script>
+<script src="overview.js"></script>
 <script src="dashboard_class.js"></script>
-<script src="dashboard_subject.js"></script>
+script src="dashboard_subject.js"></script>
 <script src="dashboard_teacher.js"></script>
 <script src="attendance.js"></script>
 <script src="trends.js"></script>
 <script src="main.js"></script>
 
-<!-- Локальный LLM (с безопасной проверкой наличия webllm) -->
+<!-- Локальный LLM -->
 <script type="module" src="llm_cpu.js"></script>
 
 </body>

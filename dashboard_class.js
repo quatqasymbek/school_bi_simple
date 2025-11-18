@@ -7,12 +7,10 @@ window.SBI_Class = (function () {
     let termSelect;
     let classSelect;
 
-    let summaryContainer;   // верхняя таблица по всем классам
-    let pieContainer;       // круговая диаграмма
+    let summaryContainer;
+    let pieContainer;
     let trendContainer;
     let heatmapContainer;
-
-    // ---------------- ВСПОМОГАТЕЛЬНОЕ ----------------
 
     function buildTeacherName(row) {
         if (!row) return "";
@@ -32,7 +30,11 @@ window.SBI_Class = (function () {
         return buildTeacherName(tr) || tid;
     }
 
-    // Категоризация учащихся по подмножеству строк (один класс + четверть)
+    function getClassLabelFromRow(cls) {
+        return String(cls.class_name || cls.class_id || "").trim();
+    }
+
+    // категоризация учащихся по подмножеству строк
     function classifyStudents(rows) {
         const byStudent = SBI.groupBy(
             rows,
@@ -40,10 +42,10 @@ window.SBI_Class = (function () {
             r => SBI.toNumber(r.final_5scale)
         );
 
-        let excellent = 0; // только 5
-        let good = 0;      // 4–5, без 3 и 2
-        let three = 0;     // есть 3, но нет 2
-        let two = 0;       // есть 2
+        let excellent = 0;
+        let good      = 0;
+        let three     = 0;
+        let two       = 0;
 
         Object.keys(byStudent).forEach(sid => {
             const grades = byStudent[sid].filter(g => g != null && !Number.isNaN(g));
@@ -69,19 +71,15 @@ window.SBI_Class = (function () {
         return { excellent, good, three, two };
     }
 
-    // Качество знаний = (отличники + хорошисты) / всех
+    // Качество знаний по классу = (отличники + хорошисты) / всех
     function computeQuality(rows) {
         const { excellent, good, three, two } = classifyStudents(rows);
         const total = excellent + good + three + two;
         if (!total) return null;
-        return (excellent + good) / total; // 0..1
+        return (excellent + good) / total;
     }
 
-    function getClassLabelFromRow(cls) {
-        return String(cls.class_name || cls.class_id || "").trim();
-    }
-
-    // ---------------- ВЕРХНЯЯ ТАБЛИЦА ----------------
+    // ───────────── верхняя таблица по всем классам ─────────────
 
     function renderClassSummaryTable() {
         if (!summaryContainer) return;
@@ -97,14 +95,12 @@ window.SBI_Class = (function () {
         const rawTerms = state.allTerms || [];
         const terms    = rawTerms.map(t => String(t).trim());
 
-        // индекс учителей
         const teachersIndex = {};
         teachers.forEach(t => {
             const id = String(t.teacher_id || "").trim();
             if (id) teachersIndex[id] = t;
         });
 
-        // группировка по (класс, четверть)
         const byClassTerm = {};
         rows.forEach(r => {
             const label = String(r.class || r.class_id || "").trim();
@@ -176,7 +172,7 @@ window.SBI_Class = (function () {
         summaryContainer.innerHTML = html;
     }
 
-    // ---------------- КРУГОВАЯ ДИАГРАММА ----------------
+    // ───────────── donut по выбранному классу ─────────────
 
     function getClassNameByLabel(label) {
         const classes = state.classesTable || [];
@@ -223,20 +219,43 @@ window.SBI_Class = (function () {
             "Двоечники (есть 2)"
         ];
         const values = [excellent, good, three, two];
+        const total  = values.reduce((a, b) => a + b, 0);
 
         Plotly.newPlot(pieContainer, [{
             labels,
             values,
             type: "pie",
-            textinfo: "label+percent",
-            hole: 0.35
+            hole: 0.5,
+            sort: false,
+            direction: "clockwise",
+            marker: {
+                colors: ["#2ecc71", "#3498db", "#f1c40f", "#e74c3c"]
+            },
+            textinfo: "percent",
+            textposition: "inside",
+            textfont: { size: 12 },
+            hovertemplate: "%{label}<br>Уч-ся: %{value} (%{percent})<extra></extra>"
         }], {
             title: `Структура успеваемости — ${getClassNameByLabel(classLb)} (${term})`,
-            legend: { orientation: "h", y: -0.1 }
+            showlegend: true,
+            legend: {
+                orientation: "h",
+                y: -0.1,
+                x: 0.5,
+                xanchor: "center"
+            },
+            margin: { t: 50, b: 70, l: 0, r: 0 },
+            annotations: total ? [{
+                showarrow: false,
+                text: `Всего<br>${total}`,
+                x: 0.5,
+                y: 0.5,
+                font: { size: 13 }
+            }] : []
         });
     }
 
-    // ---------------- ИНИЦИАЛИЗАЦИЯ ----------------
+    // ───────────── инициализация ─────────────
 
     function initDom() {
         termSelect       = document.getElementById("classTermSelect");

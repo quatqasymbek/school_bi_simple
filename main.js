@@ -1,8 +1,73 @@
 // ==========================================================
-//               MAIN.JS — ФИНАЛЬНАЯ ВЕРСИЯ
+//               MAIN.JS — ФИНАЛЬНАЯ ВЕРСИЯ + LLM HOOK
 // ==========================================================
 
 console.log("JS загружен: main.js");
+
+// --- ГАРАНТИЯ, ЧТО SBI СУЩЕСТВУЕТ И ЕСТЬ БАЗОВЫЕ ХЕЛПЕРЫ ---
+
+window.SBI = window.SBI || {};
+const SBI = window.SBI;
+
+// Логгер
+if (typeof SBI.log !== "function") {
+    SBI.log = function () {
+        const args = Array.prototype.slice.call(arguments);
+        if (console && console.log) {
+            console.log.apply(console, ["[SBI]"].concat(args));
+        }
+    };
+}
+
+// Статус (если нет собственной реализации)
+if (typeof SBI.setStatus !== "function") {
+    SBI.setStatus = function (msg) {
+        console.log("[STATUS]", msg);
+        const el = document.getElementById("statusBar");
+        if (el) el.textContent = msg;
+    };
+}
+
+// Числовой парсер (деликатный, с поддержкой запятой)
+if (typeof SBI.toNumber !== "function") {
+    SBI.toNumber = function (value) {
+        if (value == null || value === "") return null;
+        if (typeof value === "number") {
+            return Number.isFinite(value) ? value : null;
+        }
+        const s = String(value).replace(",", ".").trim();
+        if (!s) return null;
+        const n = Number(s);
+        return Number.isNaN(n) ? null : n;
+    };
+}
+
+// Уникальные значения массива
+if (typeof SBI.unique !== "function") {
+    SBI.unique = function (arr) {
+        if (!Array.isArray(arr)) return [];
+        const set = new Set();
+        arr.forEach(v => {
+            if (v == null) return;
+            const s = String(v).trim();
+            if (!s) return;
+            set.add(s);
+        });
+        return Array.from(set);
+    };
+}
+
+// --- LLM helper (llm_cpu.js) presence info ---
+if (window.SBI_LLM && typeof window.SBI_LLM.getModelId === "function") {
+    SBI.log("LLM helper обнаружен. Модель:", window.SBI_LLM.getModelId());
+} else {
+    SBI.log("LLM helper (llm_cpu.js) пока не загружен. " +
+        "Для AI-интерпретации подключите llm_cpu.js в index.html перед файлами дашбордов.");
+}
+
+// ==========================================================
+//               ОСНОВНОЙ КОД ЗАГРУЗКИ EXCEL
+// ==========================================================
 
 const fileInput = document.getElementById("excelUpload");
 
@@ -74,7 +139,7 @@ if (fileInput) {
 
         SBI.log("Найденные листы: " + workbook.SheetNames.join(", "));
 
-        const state  = SBI.state;
+        const state  = SBI.state || (SBI.state = {});
         const sheets = workbook.Sheets;
 
         function readSheet(name) {
@@ -170,9 +235,9 @@ if (fileInput) {
             if (!row) return defaults;
 
             return {
-                w_fo: toNumber(row.w_fo ?? row.fo_weight)   ?? defaults.w_fo,
-                w_sor: toNumber(row.w_sor ?? row.sor_weight) ?? defaults.w_sor,
-                w_soch: toNumber(row.w_soch ?? row.soch_weight) ?? defaults.w_soch
+                w_fo:  toNumber(row.w_fo   ?? row.fo_weight)   ?? defaults.w_fo,
+                w_sor: toNumber(row.w_sor  ?? row.sor_weight)  ?? defaults.w_sor,
+                w_soch:toNumber(row.w_soch ?? row.soch_weight) ?? defaults.w_soch
             };
         }
 
@@ -191,8 +256,7 @@ if (fileInput) {
             .filter(Boolean)
             .sort((a, b) => a.min - b.min);
 
-        // 🔥 КРИТИЧЕСКИЙ ФОЛБЭК: если шкала не прочиталась из Excel,
-        // используем стандартные пороги 50/70/85:
+        // Фолбэк: если шкала не прочиталась
         if (!scale.length) {
             SBI.log("⚠️ Не удалось прочитать шкалу 5-балльной оценки из листа «ШКАЛА_5Б». " +
                     "Используем стандартные пороги (50/70/85).");
@@ -255,7 +319,7 @@ if (fileInput) {
                     final_percent = final_percent * 100; // 0,81 → 81
                 }
 
-                const final_5scale  = toNumber(r.final_5pt) ?? mapPercentTo5pt(final_percent);
+                const final_5scale      = toNumber(r.final_5pt) ?? mapPercentTo5pt(final_percent);
                 const knowledge_quality = computeKnowledgeQuality(final_5scale);
 
                 analyticRows.push({

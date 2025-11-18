@@ -26,7 +26,7 @@ window.SBI_Overview = (function () {
     function getRowsForTerm(term) {
         const rows = state.allRows || [];
         if (!term) return rows;
-        return rows.filter(r => r.term === term);
+        return rows.filter(r => String(r.term).trim() === String(term).trim());
     }
 
     // категоризация учеников по четверти (4 категории)
@@ -34,7 +34,7 @@ window.SBI_Overview = (function () {
         const byStudent = SBI.groupBy(
             rowsForTerm,
             r => r.student_id,
-            r => Number(r.final_5scale)
+            r => SBI.toNumber(r.final_5scale)
         );
 
         let excellent = 0; // только 5
@@ -43,7 +43,7 @@ window.SBI_Overview = (function () {
         let two       = 0; // есть 2
 
         Object.keys(byStudent).forEach(key => {
-            const grades = byStudent[key].filter(g => !Number.isNaN(g));
+            const grades = byStudent[key].filter(g => g != null && !Number.isNaN(g));
             if (!grades.length) return;
 
             const has2 = grades.some(g => g === 2);
@@ -94,11 +94,11 @@ window.SBI_Overview = (function () {
             const q = SBI.knowledgeRatio(rowsTerm);
             metricLabel = "Качество знаний";
             metricValue = q != null ? Math.round(q * 100) + "%" : "—";
-            metricSub   = "Доля оценок 4–5 за выбранную четверть";
+            metricSub   = "Доля учеников с итоговой 4–5 за выбранную четверть";
         } else {
-            const vals = rowsTerm.map(r =>
-                Number(r.final_5scale)
-            ).filter(v => !Number.isNaN(v));
+            const vals = rowsTerm
+                .map(r => SBI.toNumber(r.final_5scale))
+                .filter(v => v != null && !Number.isNaN(v));
             const m = SBI.mean(vals);
             metricLabel = "Средний балл";
             metricValue = m != null ? m.toFixed(2) + " из 5" : "—";
@@ -153,9 +153,9 @@ window.SBI_Overview = (function () {
                 x.push(g + " класс");
                 y.push(q != null ? Math.round(q * 100) : null);
             } else {
-                const vals = list.map(r =>
-                    Number(r.final_5scale)
-                ).filter(v => !Number.isNaN(v));
+                const vals = list
+                    .map(r => SBI.toNumber(r.final_5scale))
+                    .filter(v => v != null && !Number.isNaN(v));
                 const m = SBI.mean(vals);
                 x.push(g + " класс");
                 y.push(m != null ? m : null);
@@ -188,7 +188,9 @@ window.SBI_Overview = (function () {
         const rows = state.allRows || [];
         if (!rows.length) return;
 
-        const terms = state.allTerms || [];
+        const rawTerms = state.allTerms || [];
+        const terms = rawTerms.map(t => String(t).trim());
+
         const grades = SBI.unique(
             rows.map(r => r.grade).filter(g => g != null)
         ).sort((a, b) => a - b);
@@ -199,7 +201,10 @@ window.SBI_Overview = (function () {
         grades.forEach(g => {
             const rowZ = [];
             terms.forEach(t => {
-                const subset = rows.filter(r => r.grade === g && r.term === t);
+                const subset = rows.filter(r =>
+                    r.grade === g &&
+                    String(r.term).trim() === t
+                );
                 const q = SBI.knowledgeRatio(subset);
                 rowZ.push(q != null ? Math.round(q * 100) : null);
             });
@@ -267,18 +272,16 @@ window.SBI_Overview = (function () {
             return;
         }
 
-        // заполнение селектора четвертей
         if (termSelect) {
             termSelect.innerHTML = "";
             (state.allTerms || []).forEach(t => {
                 const opt = document.createElement("option");
-                opt.value = t;
-                opt.textContent = t;
+                opt.value = String(t).trim();
+                opt.textContent = String(t).trim();
                 termSelect.appendChild(opt);
             });
             if (state.allTerms.length) {
-                // по умолчанию последняя четверть
-                termSelect.value = state.allTerms[state.allTerms.length - 1];
+                termSelect.value = String(state.allTerms[state.allTerms.length - 1]).trim();
             }
         }
 

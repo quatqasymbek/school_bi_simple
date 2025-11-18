@@ -72,7 +72,7 @@ window.SBI_Attendance = (function () {
                 const total = Number(r.total_classes ?? 0);
                 const present = Number(r.present_classes ?? 0);
                 const exc = Number(r.absent_excused_classes ?? 0);
-                const unexc = Number(r.absent_unexc_classes ?? 0);
+                const unexc = Number(r.absent_unexcused_classes ?? 0);
                 const late = Number(r.late_classes ?? 0);
 
                 const denom = total || (present + exc + unexc + late);
@@ -201,7 +201,10 @@ window.SBI_Attendance = (function () {
         }).filter(function (r) {
             return r.studentId;
         }).sort(function (a, b) {
-            return b.present - a.present;
+            const absA = (a.exc + a.unexc);
+            const absB = (b.exc + b.unexc);
+            if (absB !== absA) return absB - absA; // больше пропусков — выше
+            return a.studentName.localeCompare(b.studentName, "ru");
         });
 
         return result;

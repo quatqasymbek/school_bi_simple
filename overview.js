@@ -29,6 +29,7 @@ window.SBI_Overview = (function () {
         return rows.filter(r => r.term === term);
     }
 
+    // категоризация учеников по четверти
     function computeStudentCategories(rowsForTerm) {
         const byStudent = SBI.groupBy(
             rowsForTerm,
@@ -67,7 +68,8 @@ window.SBI_Overview = (function () {
     function renderCards() {
         if (!cardsEl) return;
 
-        const term = termSelect && termSelect.value ? termSelect.value : (state.allTerms[0] || null);
+        const defaultTerm = state.allTerms.length ? state.allTerms[0] : null;
+        const term = termSelect && termSelect.value ? termSelect.value : defaultTerm;
         const metric = metricSelect ? metricSelect.value : "quality";
 
         const rowsTerm = getRowsForTerm(term);
@@ -94,12 +96,12 @@ window.SBI_Overview = (function () {
             metricSub   = "Доля оценок 4–5 за выбранную четверть";
         } else {
             const vals = rowsTerm.map(r =>
-                Number(r.final_percent ?? r.final_5scale ?? NaN)
+                Number(r.final_5scale)
             ).filter(v => !Number.isNaN(v));
             const m = SBI.mean(vals);
             metricLabel = "Средний балл";
-            metricValue = m != null ? m.toFixed(1) : "—";
-            metricSub   = "Среднее значение итоговых оценок (%)";
+            metricValue = m != null ? m.toFixed(2) + " из 5" : "—";
+            metricSub   = "Средний итоговый балл по 5-балльной шкале";
         }
 
         cardsEl.innerHTML = `
@@ -122,7 +124,8 @@ window.SBI_Overview = (function () {
     function renderGradeBar() {
         if (!gradeBarEl) return;
 
-        const term = termSelect && termSelect.value ? termSelect.value : (state.allTerms[0] || null);
+        const defaultTerm = state.allTerms.length ? state.allTerms[0] : null;
+        const term = termSelect && termSelect.value ? termSelect.value : defaultTerm;
         const metric = metricSelect ? metricSelect.value : "quality";
 
         const rowsTerm = getRowsForTerm(term);
@@ -150,7 +153,7 @@ window.SBI_Overview = (function () {
                 y.push(q != null ? Math.round(q * 100) : null);
             } else {
                 const vals = list.map(r =>
-                    Number(r.final_percent ?? r.final_5scale ?? NaN)
+                    Number(r.final_5scale)
                 ).filter(v => !Number.isNaN(v));
                 const m = SBI.mean(vals);
                 x.push(g + " класс");
@@ -162,7 +165,7 @@ window.SBI_Overview = (function () {
             ? "Качество знаний по классам (1–11) за четверть " + term
             : "Средний балл по классам (1–11) за четверть " + term;
 
-        const yTitle = metric === "quality" ? "% 4–5" : "Средний балл";
+        const yTitle = metric === "quality" ? "% 4–5" : "Средний балл (1–5)";
 
         Plotly.newPlot(gradeBarEl, [{
             x,
@@ -170,7 +173,7 @@ window.SBI_Overview = (function () {
             type: "bar",
             text: metric === "quality"
                 ? y.map(v => (v != null ? v.toFixed(1) + "%" : ""))
-                : y.map(v => (v != null ? v.toFixed(1) : "")),
+                : y.map(v => (v != null ? v.toFixed(2) : "")),
             textposition: "auto"
         }], {
             title,
@@ -220,7 +223,8 @@ window.SBI_Overview = (function () {
     function renderPie() {
         if (!pieEl) return;
 
-        const term = termSelect && termSelect.value ? termSelect.value : (state.allTerms[0] || null);
+        const defaultTerm = state.allTerms.length ? state.allTerms[0] : null;
+        const term = termSelect && termSelect.value ? termSelect.value : defaultTerm;
         const rowsTerm = getRowsForTerm(term);
 
         const { countA, countB, countC } = computeStudentCategories(rowsTerm);
@@ -271,6 +275,7 @@ window.SBI_Overview = (function () {
                 termSelect.appendChild(opt);
             });
             if (state.allTerms.length) {
+                // по умолчанию последняя четверть
                 termSelect.value = state.allTerms[state.allTerms.length - 1];
             }
         }

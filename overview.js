@@ -29,7 +29,7 @@ window.SBI_Overview = (function () {
         return rows.filter(r => r.term === term);
     }
 
-    // категоризация учеников по четверти
+    // категоризация учеников по четверти (4 категории)
     function computeStudentCategories(rowsForTerm) {
         const byStudent = SBI.groupBy(
             rowsForTerm,
@@ -37,9 +37,10 @@ window.SBI_Overview = (function () {
             r => Number(r.final_5scale)
         );
 
-        let countA = 0; // отличники
-        let countB = 0; // хорошисты
-        let countC = 0; // троечники
+        let excellent = 0; // только 5
+        let good      = 0; // 4–5, без 3 и 2
+        let three     = 0; // есть 3, нет 2
+        let two       = 0; // есть 2
 
         Object.keys(byStudent).forEach(key => {
             const grades = byStudent[key].filter(g => !Number.isNaN(g));
@@ -51,18 +52,18 @@ window.SBI_Overview = (function () {
             const has5 = grades.some(g => g === 5);
             const all5 = grades.every(g => g === 5);
 
-            if (all5) {
-                countA++;
-            } else if (!has2 && !has3 && (has4 || has5)) {
-                // хорошие: есть 4/5, но нет 3–2 и не все 5
-                countB++;
+            if (has2) {
+                two++;
             } else if (has3) {
-                // троечники: есть хотя бы одна 3
-                countC++;
+                three++;
+            } else if (all5) {
+                excellent++;
+            } else if (has4 || has5) {
+                good++;
             }
         });
 
-        return { countA, countB, countC };
+        return { excellent, good, three, two };
     }
 
     function renderCards() {
@@ -227,14 +228,15 @@ window.SBI_Overview = (function () {
         const term = termSelect && termSelect.value ? termSelect.value : defaultTerm;
         const rowsTerm = getRowsForTerm(term);
 
-        const { countA, countB, countC } = computeStudentCategories(rowsTerm);
+        const { excellent, good, three, two } = computeStudentCategories(rowsTerm);
 
         const labels = [
             "Отличники (только 5)",
-            "Хорошисты (4–5, без 2–3)",
-            "Троечники (есть 3)"
+            "Хорошисты (4–5, без 3 и 2)",
+            "Троечники (есть 3, нет 2)",
+            "Двоечники (есть 2)"
         ];
-        const values = [countA, countB, countC];
+        const values = [excellent, good, three, two];
 
         Plotly.newPlot(pieEl, [{
             labels,

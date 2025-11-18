@@ -114,11 +114,11 @@ SBI.toNumber = function (val) {
     return Number.isNaN(n) ? null : n;
 };
 
-// Переключение страниц
-function switchPage(pageId) {
+// Переключение страниц — ВАЖНО: вешаем на window
+window.switchPage = function (pageId) {
     console.log("Переключение страницы:", pageId);
     const pages = document.querySelectorAll(".page");
     pages.forEach(p => p.classList.remove("active"));
     const target = document.getElementById(pageId);
     if (target) target.classList.add("active");
-}
+};

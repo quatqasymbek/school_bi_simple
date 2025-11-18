@@ -84,23 +84,6 @@ SBI.groupBy = function (rows, keyFn, valueFn) {
     return map;
 };
 
-// Качество знаний: доля оценок 4–5
-SBI.knowledgeRatio = function (rows) {
-    if (!rows || !rows.length) return null;
-
-    const vals = rows.map(r => {
-        if (r.knowledge_quality != null) {
-            return Number(r.knowledge_quality);
-        }
-        const g = Number(r.final_5scale);
-        if (!Number.isNaN(g)) return g >= 4 ? 1 : 0;
-        return null;
-    }).filter(v => v != null && !Number.isNaN(v));
-
-    if (!vals.length) return null;
-    return SBI.mean(vals);
-};
-
 // универсальный парсер чисел из Excel (поддержка "0,81")
 SBI.toNumber = function (val) {
     if (val == null) return null;
@@ -114,7 +97,25 @@ SBI.toNumber = function (val) {
     return Number.isNaN(n) ? null : n;
 };
 
-// Переключение страниц — ВАЖНО: вешаем на window
+// Качество знаний: доля оценок 4–5
+// ВАЖНО: не считать null как 0 (Number(null) == 0)
+SBI.knowledgeRatio = function (rows) {
+    if (!rows || !rows.length) return null;
+
+    const vals = rows.map(r => {
+        if (r.knowledge_quality != null) {
+            return SBI.toNumber(r.knowledge_quality);
+        }
+        const g = SBI.toNumber(r.final_5scale);
+        if (g == null) return null;
+        return g >= 4 ? 1 : 0;
+    }).filter(v => v != null && !Number.isNaN(v));
+
+    if (!vals.length) return null;
+    return SBI.mean(vals);
+};
+
+// Переключение страниц (делаем глобальным)
 window.switchPage = function (pageId) {
     console.log("Переключение страницы:", pageId);
     const pages = document.querySelectorAll(".page");

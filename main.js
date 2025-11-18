@@ -1,5 +1,5 @@
 // ==========================================================
-//               MAIN.JS — ПОЛНОСТЬЮ ОБНОВЛЁН
+//               MAIN.JS — ОБНОВЛЁН (фикс качества знаний)
 // ==========================================================
 
 console.log("JS загружен: main.js");
@@ -119,7 +119,7 @@ if (fileInput) {
             if (id) idx_teachers[id] = r;
         });
 
-        // складываем индексы в state (могут пригодиться другим модулям)
+        // складываем индексы в state
         state.idx_students = idx_students;
         state.idx_classes  = idx_classes;
         state.idx_subjects = idx_subjects;
@@ -175,7 +175,7 @@ if (fileInput) {
             .map(r => {
                 let min = toNumber(r.min_percent ?? r.threshold ?? r.percent_min);
                 if (min == null) return null;
-                if (min <= 1) min = min * 100;
+                if (min <= 1) min = min * 100; // 0.7 → 70%
 
                 const grade = toNumber(r.grade_5pt ?? r.grade ?? r.mark);
                 if (grade == null) return null;
@@ -190,11 +190,17 @@ if (fileInput) {
             if (p == null) return null;
 
             let result = null;
-
             for (let i = 0; i < scale.length; i++) {
                 if (p >= scale[i].min) result = scale[i].grade;
             }
             return result;
+        }
+
+        // ✅ НОВОЕ: правильный расчёт качества знаний
+        function computeKnowledgeQuality(final_5scale) {
+            const g = toNumber(final_5scale);
+            if (g == null) return null;   // нет оценки — не учитываем
+            return g >= 4 ? 1 : 0;        // 4–5 → 1, 2–3 → 0
         }
 
 
@@ -229,6 +235,7 @@ if (fileInput) {
 
                 const final_percent = toNumber(r.final_percent);
                 const final_5scale  = toNumber(r.final_5pt) ?? mapPercentTo5pt(final_percent);
+                const knowledge_quality = computeKnowledgeQuality(final_5scale);
 
                 analyticRows.push({
                     student_id,
@@ -242,7 +249,7 @@ if (fileInput) {
                     term: term_id,
                     final_percent,
                     final_5scale,
-                    knowledge_quality: final_5scale >= 4 ? 1 : 0
+                    knowledge_quality
                 });
             });
         }
@@ -266,7 +273,7 @@ if (fileInput) {
                 const key = `${student_id}|${subject_id}|${term_id}|${work_type}`;
                 if (!byTypeKey[key]) byTypeKey[key] = [];
 
-                // === ПАРСИНГ ОЦЕНКИ ===
+                // === ПАРСИНГ ОЦЕНКИ В ПРОЦЕНТ ===
                 let pct = null;
 
                 if (r.percent != null) {
@@ -360,6 +367,7 @@ if (fileInput) {
                 const grade_num    = cls.grade ?? cls.grade_num ?? cls.grade_number ?? null;
 
                 const final_5scale = mapPercentTo5pt(final_percent);
+                const knowledge_quality = computeKnowledgeQuality(final_5scale);
 
                 analyticRows.push({
                     student_id,
@@ -373,7 +381,7 @@ if (fileInput) {
                     term: term_id,
                     final_percent,
                     final_5scale,
-                    knowledge_quality: final_5scale >= 4 ? 1 : 0
+                    knowledge_quality
                 });
             });
         }
@@ -452,12 +460,12 @@ if (fileInput) {
         state.assignments       = assignmentsRaw;
 
         // новые структуры для удобства модулей
-        state.allTeachers       = allTeachers;
+        state.allTeachers        = allTeachers;
         state.teacherAssignments = assignmentsRaw;
-        state.idx_subjects      = idx_subjects;
+        state.idx_subjects       = idx_subjects;
 
         // посещаемость
-        state.attendanceRows    = attendanceProcessed;
+        state.attendanceRows     = attendanceProcessed;
 
 
         /* ------------------------------------------------------
@@ -471,6 +479,5 @@ if (fileInput) {
         if (window.SBI_Subject)    SBI_Subject.onDataLoaded();
         if (window.SBI_Teacher)    SBI_Teacher.onDataLoaded();
         if (window.SBI_Attendance) SBI_Attendance.onDataLoaded();
-        // Трендов больше нет
     });
 }

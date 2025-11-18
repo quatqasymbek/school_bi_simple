@@ -86,23 +86,46 @@ if (fileInput) {
         const weightsRaw     = readSheet("ВЕСА_ОЦЕНОК");
         const scaleRaw       = readSheet("ШКАЛА_5Б");
         const termResultsRaw = sheets["ИТОГ_ЧЕТВЕРТИ"] ? readSheet("ИТОГ_ЧЕТВЕРТИ") : [];
-
+        const attendanceRaw  = readSheet("ПОСЕЩАЕМОСТЬ");
 
         // ------------- Индексы -------------
         const idx_students = {};
-        studentsRaw.forEach(r => idx_students[String(r.student_id || "").trim()] = r);
+        studentsRaw.forEach(r => {
+            const id = String(r.student_id || "").trim();
+            if (id) idx_students[id] = r;
+        });
 
         const idx_classes = {};
-        classesRaw.forEach(r => idx_classes[String(r.class_id || "").trim()] = r);
+        classesRaw.forEach(r => {
+            const id = String(r.class_id || "").trim();
+            if (id) idx_classes[id] = r;
+        });
 
         const idx_subjects = {};
-        subjectsRaw.forEach(r => idx_subjects[String(r.subject_id || "").trim()] = r);
+        subjectsRaw.forEach(r => {
+            const id = String(r.subject_id || "").trim();
+            if (id) idx_subjects[id] = r;
+        });
 
         const idx_terms = {};
-        termsRaw.forEach(r => idx_terms[String(r.term_id || "").trim()] = r);
+        termsRaw.forEach(r => {
+            const id = String(r.term_id || "").trim();
+            if (id) idx_terms[id] = r;
+        });
 
         const idx_teachers = {};
-        teachersRaw.forEach(r => idx_teachers[String(r.teacher_id || "").trim()] = r);
+        teachersRaw.forEach(r => {
+            const id = String(r.teacher_id || "").trim();
+            if (id) idx_teachers[id] = r;
+        });
+
+        // складываем индексы в state (могут пригодиться другим модулям)
+        state.idx_students = idx_students;
+        state.idx_classes  = idx_classes;
+        state.idx_subjects = idx_subjects;
+        state.idx_terms    = idx_terms;
+        state.idx_teachers = idx_teachers;
+
 
         /* ------------------------------------------------------
            ЧТЕНИЕ ВЕСОВ
@@ -247,8 +270,11 @@ if (fileInput) {
                 let pct = null;
 
                 if (r.percent != null) {
-                    const frac = toNumber(r.percent);  // 0.81
-                    if (frac != null) pct = frac * 100;
+                    let frac = toNumber(r.percent);  // может быть 0.81 или 81
+                    if (frac != null) {
+                        if (frac <= 1) frac = frac * 100; // 0.81 → 81
+                        pct = frac;
+                    }
                 }
                 else if (r.score_percent != null) {
                     pct = toNumber(r.score_percent);
@@ -278,7 +304,7 @@ if (fileInput) {
                     };
                 }
 
-                // === НОРМАЛИЗАЦИЯ work_type (главная ошибка была тут) ===
+                // === НОРМАЛИЗАЦИЯ work_type ===
                 let t = rawType.toString().trim().toUpperCase();
 
                 if (t === "ФО")  t = "FO";
@@ -354,6 +380,58 @@ if (fileInput) {
 
 
         /* ------------------------------------------------------
+           ПОДГОТОВКА ДАННЫХ ПО УЧИТЕЛЯМ
+        ------------------------------------------------------ */
+
+        const allTeachers = teachersRaw.map(t => {
+            const id = String(t.teacher_id || "").trim();
+            const readyName = t.teacher_name && String(t.teacher_name).trim();
+            const builtName = buildPersonName(t);
+            const name = readyName || builtName || id;
+            return {
+                ...t,
+                teacher_id: id,
+                teacher_name: name
+            };
+        });
+
+
+        /* ------------------------------------------------------
+           ПОДГОТОВКА ДАННЫХ ПО ПОСЕЩАЕМОСТИ
+        ------------------------------------------------------ */
+
+        const attendanceProcessed = (attendanceRaw || []).map(r => {
+            const student_id = String(r.student_id || "").trim();
+            const class_id   = String(r.class_id   || "").trim();
+            const term_id    = String(r.term_id    || "").trim();
+            const subject_id = String(r.subject_id || "").trim();
+
+            const studentRow   = idx_students[student_id] || {};
+            const student_name = buildPersonName(studentRow);
+
+            const total_classes = Number(r.total_classes ?? r.total ?? 0);
+            const present_classes = Number(r.present_classes ?? r.present ?? 0);
+            const absent_excused_classes   = Number(r.absent_excused_classes   ?? r.absent_excused   ?? 0);
+            const absent_unexcused_classes = Number(r.absent_unexcused_classes ?? r.absent_unexcused ?? 0);
+            const late_classes = Number(r.late_classes ?? r.late ?? 0);
+
+            return {
+                ...r,
+                student_id,
+                student_name,
+                class_id,
+                term_id,
+                subject_id,
+                total_classes,
+                present_classes,
+                absent_excused_classes,
+                absent_unexcused_classes,
+                late_classes
+            };
+        });
+
+
+        /* ------------------------------------------------------
            СОХРАНЯЕМ РЕЗУЛЬТАТ ВСЕХ РАСЧЁТОВ
         ------------------------------------------------------ */
 
@@ -366,11 +444,20 @@ if (fileInput) {
         SBI.log("Четверти: " + state.allTerms.join(", "));
         SBI.log("Классы: "  + state.allClasses.join(", "));
 
-        state.students      = studentsRaw;
-        state.classesTable  = classesRaw;
-        state.subjectsTable = subjectsRaw;
-        state.teachers      = teachersRaw;
-        state.assignments   = assignmentsRaw;
+        state.students          = studentsRaw;
+        state.classesTable      = classesRaw;
+        state.subjectsTable     = subjectsRaw;
+        state.termsTable        = termsRaw;
+        state.teachers          = teachersRaw;
+        state.assignments       = assignmentsRaw;
+
+        // новые структуры для удобства модулей
+        state.allTeachers       = allTeachers;
+        state.teacherAssignments = assignmentsRaw;
+        state.idx_subjects      = idx_subjects;
+
+        // посещаемость
+        state.attendanceRows    = attendanceProcessed;
 
 
         /* ------------------------------------------------------
@@ -379,11 +466,11 @@ if (fileInput) {
 
         SBI.setStatus("Данные загружены успешно.");
 
-        if (window.SBI_Overview)  SBI_Overview.onDataLoaded();
-        if (window.SBI_Class)     SBI_Class.onDataLoaded();
-        if (window.SBI_Subject)   SBI_Subject.onDataLoaded();
-        if (window.SBI_Teacher)   SBI_Teacher.onDataLoaded();
-        if (window.SBI_Attendance)SBI_Attendance.onDataLoaded();
-        if (window.SBI_Trends)    SBI_Trends.onDataLoaded();
+        if (window.SBI_Overview)   SBI_Overview.onDataLoaded();
+        if (window.SBI_Class)      SBI_Class.onDataLoaded();
+        if (window.SBI_Subject)    SBI_Subject.onDataLoaded();
+        if (window.SBI_Teacher)    SBI_Teacher.onDataLoaded();
+        if (window.SBI_Attendance) SBI_Attendance.onDataLoaded();
+        // Трендов больше нет
     });
 }

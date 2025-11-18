@@ -101,6 +101,19 @@ SBI.knowledgeRatio = function (rows) {
     return SBI.mean(vals);
 };
 
+// универсальный парсер чисел из Excel (поддержка "0,81")
+SBI.toNumber = function (val) {
+    if (val == null) return null;
+    if (typeof val === "number") {
+        return Number.isNaN(val) ? null : val;
+    }
+    let s = String(val).trim();
+    if (!s) return null;
+    s = s.replace(",", "."); // 0,81 → 0.81
+    const n = Number(s);
+    return Number.isNaN(n) ? null : n;
+};
+
 // Переключение страниц
 function switchPage(pageId) {
     console.log("Переключение страницы:", pageId);

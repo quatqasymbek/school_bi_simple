@@ -5,173 +5,372 @@
     <title>Школьная аналитика (офлайн)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <!-- ====== CSS ====== -->
+    <!-- ====== SIMPLE STYLES (very close to your current look) ====== -->
     <style>
+        * { box-sizing: border-box; }
+
         body {
-            font-family: Arial, sans-serif;
-            background: #f5f5f5;
             margin: 0;
-            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: #f5f5f5;
         }
 
         header {
-            background: #204a87;
-            color: white;
-            padding: 12px 20px;
+            background: #123b71;
+            color: #fff;
+            padding: 10px 20px;
             font-size: 20px;
-            font-weight: bold;
+            font-weight: 600;
         }
 
-        .container {
-            padding: 20px;
+        .top-panel {
+            background: #f7f7f7;
+            padding: 16px 20px;
+            border-bottom: 1px solid #dcdcdc;
         }
 
-        nav {
-            background: #0b2c5d;
-            padding: 8px 0;
-            margin-bottom: 20px;
+        .top-panel p {
+            margin: 4px 0;
         }
 
-        nav a {
-            color: white;
+        .top-panel small {
+            color: #666;
+        }
+
+        #statusBar {
+            margin-top: 6px;
+            font-size: 13px;
+            color: #555;
+        }
+
+        .tabs-bar {
+            background: #163963;
+            color: #fff;
+            display: flex;
+            padding: 0 20px;
+        }
+
+        .tab-link {
+            padding: 10px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #fff;
             text-decoration: none;
-            padding: 10px 18px;
-            display: inline-block;
-            font-size: 15px;
+            border-bottom: 3px solid transparent;
         }
 
-        nav a:hover {
-            background: #133b74;
+        .tab-link.active {
+            background: #1f4b85;
+            border-bottom-color: #ffcc33;
         }
 
-        .tab-content {
-            background: white;
+        .page {
+            display: none;
             padding: 20px;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        h2 {
+            margin-top: 0;
+        }
+
+        .overview-filters {
+            margin: 12px 0 16px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .overview-filters label {
+            font-size: 14px;
+        }
+
+        select {
+            padding: 4px 8px;
+            font-size: 14px;
+        }
+
+        .card {
+            background: #fff;
             border-radius: 6px;
+            border: 1px solid #e0e0e0;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .kpi-row {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            font-size: 14px;
+        }
+
+        .kpi-item span.value {
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            background: #264f9b;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 14px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn-primary:hover {
+            background: #1e3d7a;
         }
 
         .ai-output {
             margin-top: 10px;
-            padding: 12px;
+            padding: 10px 12px;
             background: #fafafa;
-            border-left: 4px solid #357abd;
+            border-radius: 4px;
+            border-left: 4px solid #264f9b;
+            font-size: 14px;
             white-space: pre-wrap;
-            border-radius: 4px;
         }
 
-        .btn-primary {
-            background: #357abd;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .btn-primary:hover {
-            background: #2a5d91;
+        /* Simple chart containers */
+        #overview-donut,
+        #chart-teacher-performance,
+        #chart-teacher-subjects,
+        #chart-teacher-trend {
+            width: 100%;
+            min-height: 280px;
         }
 
-        #statusBar {
+        table.overview-grade-table {
+            border-collapse: collapse;
+            width: 100%;
             font-size: 13px;
-            padding-top: 6px;
-            color: #444;
+        }
+        table.overview-grade-table th,
+        table.overview-grade-table td {
+            border: 1px solid #ddd;
+            padding: 4px 6px;
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            .tabs-bar {
+                flex-wrap: wrap;
+            }
         }
     </style>
 </head>
-
 <body>
 
 <header>Школьная аналитика (офлайн)</header>
 
-<div class="container">
-
-    <div>
-        <p>Загрузите Excel-файл с данными школы:</p>
-        <input type="file" id="excelUpload">
-        <div id="statusBar">Данные еще не загружены.</div>
-    </div>
-
-    <!-- ===== NAVIGATION ===== -->
-    <nav>
-        <a href="#overview">Обзор</a>
-        <a href="#byclass">По классам</a>
-        <a href="#bysubject">По предметам</a>
-        <a href="#byteacher">По учителям</a>
-        <a href="#attendance">Посещаемость</a>
-    </nav>
-
-    <!-- ==========================================
-         TABS (each dashboard writes inside its own container)
-         ========================================== -->
-
-    <div id="overview" class="tab-content">
-        <h2>Общий обзор</h2>
-        <div id="overview-root">
-            <!-- dashboard_overview.js will render KPI & charts here -->
-        </div>
-
-        <hr>
-
-        <h3>Пояснение тренда (локальный ИИ)</h3>
-        <button id="btn-overview-ai" class="btn-primary">Объяснить общий тренд</button>
-        <div id="overview-ai-output" class="ai-output">
-            Локальный ИИ пока не инициализирован.
-        </div>
-
-    </div>
-
-    <div id="byclass" class="tab-content">
-        <h2>По классам</h2>
-        <div id="class-root"></div>
-    </div>
-
-    <div id="bysubject" class="tab-content">
-        <h2>По предметам</h2>
-        <div id="subject-root"></div>
-    </div>
-
-    <div id="byteacher" class="tab-content">
-        <h2>По учителям</h2>
-        <div id="teacher-root"></div>
-    </div>
-
-    <div id="attendance" class="tab-content">
-        <h2>Посещаемость</h2>
-        <div id="attendance-root"></div>
-    </div>
-
+<!-- ======= FILE UPLOAD PANEL ======= -->
+<div class="top-panel">
+    <p>Загрузите Excel-файл с данными школы:</p>
+    <input type="file" id="excelUpload" />
+    <br />
+    <small>Данные загружаются целиком в браузер, никуда не отправляются.</small>
+    <div id="statusBar">Данные ещё не загружены.</div>
 </div>
 
+<!-- ======= NAV TABS ======= -->
+<div class="tabs-bar">
+    <a class="tab-link active" data-page="overview">Обзор</a>
+    <a class="tab-link" data-page="by-class">По классам</a>
+    <a class="tab-link" data-page="by-subject">По предметам</a>
+    <a class="tab-link" data-page="by-teacher">По учителям</a>
+    <a class="tab-link" data-page="attendance">Посещаемость</a>
+</div>
 
+<!-- ======= PAGES ======= -->
 
+<!-- ============ ОБЗОР ============ -->
+<section id="page-overview" class="page active">
+    <h2>Общий обзор</h2>
+    <p>После загрузки файла здесь появится сводка по школе.</p>
+
+    <!-- Фильтры -->
+    <div class="overview-filters">
+        <label>
+            Четверть:
+            <select id="overview-term-select"></select>
+        </label>
+        <label>
+            Показать:
+            <select id="overview-metric-select">
+                <!-- JS в dashboard_overview.js заполнит, если пусто -->
+            </select>
+        </label>
+    </div>
+
+    <!-- KPI -->
+    <div class="card">
+        <div class="card-title">Ключевые показатели</div>
+        <div class="kpi-row">
+            <div class="kpi-item">
+                Всего учащихся: <span id="overview-kpi-students" class="value">—</span>
+            </div>
+            <div class="kpi-item">
+                Всего учителей: <span id="overview-kpi-teachers" class="value">—</span>
+            </div>
+        </div>
+        <div id="overview-summary" style="margin-top:10px;"></div>
+    </div>
+
+    <!-- Таблица по классам и четвертям -->
+    <div class="card">
+        <div class="card-title">Средний показатель по классам и четвертям</div>
+        <div id="overview-grade-table"></div>
+    </div>
+
+    <!-- Донат по отличникам/хорошистам/троечникам/двоечникам -->
+    <div class="card">
+        <div class="card-title">Структура успеваемости по выбранной четверти</div>
+        <div id="overview-donut"></div>
+    </div>
+
+    <!-- AI-БЛОК -->
+    <div class="card">
+        <div class="card-title">Пояснение тренда (локальный ИИ)</div>
+        <p style="font-size: 13px; color:#666; margin-top:0;">
+            Локальный ИИ работает прямо в браузере на модели LLaMA&nbsp;3B.  
+            Он использует только агрегированные данные, которые уже вычислены дашбордом.
+        </p>
+        <button id="btn-overview-ai" class="btn-primary">Объяснить общий тренд</button>
+        <div id="overview-ai-output" class="ai-output">
+            Локальный ИИ пока не инициализирован. Нажмите кнопку, чтобы запустить анализ.
+        </div>
+    </div>
+</section>
+
+<!-- ============ ПО КЛАССАМ ============ -->
+<section id="page-by-class" class="page">
+    <h2>По классам</h2>
+    <!-- Здесь ваш существующий дашборд по классам будет рисовать в свои контейнеры.
+         Создайте нужные div/селекты, которые ожидает dashboard_class.js -->
+    <div id="class-dashboard-root">
+        <!-- пример: можно отрисовывать в эти div'ы -->
+        <div id="class-filters"></div>
+        <div id="class-chart-main"></div>
+        <div id="class-table"></div>
+    </div>
+</section>
+
+<!-- ============ ПО ПРЕДМЕТАМ ============ -->
+<section id="page-by-subject" class="page">
+    <h2>По предметам</h2>
+    <div id="subject-dashboard-root">
+        <div id="subject-filters"></div>
+        <div id="subject-chart-main"></div>
+        <div id="subject-table"></div>
+    </div>
+</section>
+
+<!-- ============ ПО УЧИТЕЛЯМ ============ -->
+<section id="page-by-teacher" class="page">
+    <h2>По учителям</h2>
+
+    <!-- IDs должны совпадать с dashboard_teacher.js -->
+    <div class="card">
+        <div class="card-title">Фильтры</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            <label>
+                Учитель:
+                <select id="teacherSelect"></select>
+            </label>
+            <label>
+                Предмет:
+                <select id="teacherSubjectSelect"></select>
+            </label>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">Распределение итоговых оценок</div>
+        <div id="chart-teacher-performance"></div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">Нагрузка по классам</div>
+        <div id="chart-teacher-subjects"></div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">Динамика среднего балла по четвертям</div>
+        <div id="chart-teacher-trend"></div>
+    </div>
+</section>
+
+<!-- ============ ПОСЕЩАЕМОСТЬ ============ -->
+<section id="page-attendance" class="page">
+    <h2>Посещаемость</h2>
+    <div id="attendance-dashboard-root">
+        <!-- реальные id должны совпасть с тем, что ожидает ваш attendance.js -->
+        <div id="attendance-filters"></div>
+        <div id="attendance-chart"></div>
+        <div id="attendance-table"></div>
+    </div>
+</section>
+
+<!-- ===== SIMPLE TAB SWITCHING (independent of utils.js) ===== -->
+<script>
+    (function () {
+        function showPage(pageId) {
+            document.querySelectorAll(".page").forEach(function (p) {
+                p.classList.toggle("active", p.id === "page-" + pageId);
+            });
+            document.querySelectorAll(".tab-link").forEach(function (a) {
+                a.classList.toggle("active", a.getAttribute("data-page") === pageId);
+            });
+            if (window.SBI && typeof SBI.log === "function") {
+                SBI.log("Переключение страницы:", pageId);
+            }
+        }
+
+        document.addEventListener("click", function (e) {
+            const link = e.target.closest(".tab-link");
+            if (!link) return;
+            const pageId = link.getAttribute("data-page");
+            if (!pageId) return;
+            e.preventDefault();
+            showPage(pageId);
+        });
+    })();
+</script>
 
 <!-- ===================================================================================== -->
 <!--                                    SCRIPT ORDER                                       -->
 <!-- ===================================================================================== -->
 
-<!-- Dependencies -->
+<!-- 1. Библиотеки -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 
-<!-- Utilities -->
+<!-- 2. Ваши вспомогательные функции -->
 <script src="utils.js"></script>
 
-<!-- Excel Loader / Data Normalizer -->
+<!-- 3. Загрузка Excel и подготовка SBI.state (ВАШ main.js из сообщения, без изменений) -->
 <script src="main.js"></script>
 
-<!-- Local LLM (browser only) -->
+<!-- 4. Локальный LLaMA 3B в браузере -->
 <script src="llm_cpu.js"></script>
 
-<!-- Existing dashboards (unchanged & working previously) -->
+<!-- 5. Дашборды -->
 <script src="dashboard_overview.js"></script>
 <script src="dashboard_class.js"></script>
 <script src="dashboard_subject.js"></script>
 <script src="dashboard_teacher.js"></script>
-<script src="dashboard_attendance.js"></script>
-
-<!-- AI interpreter for overview -->
-<script src="overview_ai.js"></script>
+<script src="attendance.js"></script>
 
 </body>
 </html>
-

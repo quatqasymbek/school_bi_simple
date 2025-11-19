@@ -26,9 +26,6 @@
         select, button { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; }
         button { background: var(--primary); color: white; border: none; cursor: pointer; }
         button:hover { background: #0e2a50; }
-        .kpi-value { font-size: 2.5rem; font-weight: 700; color: var(--primary); }
-        .kpi-label { font-size: 0.9rem; color: #777; margin-top: 5px; }
-        .ai-box { background: #eef2f6; border-left: 4px solid var(--primary); padding: 15px; margin-top: 15px; min-height: 60px; }
         .table-responsive { overflow-x: auto; }
         table.data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; white-space: nowrap; }
         table.data-table th, table.data-table td { padding: 10px 15px; text-align: center; border-bottom: 1px solid #eee; }
@@ -36,9 +33,10 @@
         table.data-table td:first-child { text-align: left; font-weight: 500; }
         .grade-bad { color: #e74c3c; font-weight: bold; }
         .grade-good { color: #2ecc71; font-weight: bold; }
-        #statusBar { font-size: 12px; color: #888; margin-right: 15px; cursor:pointer; }
+        #statusBar { font-size: 12px; color: #ffeb7f; cursor: pointer; }
     </style>
 </head>
+
 <body>
 
 <header>
@@ -46,7 +44,7 @@
         <span>📊</span>
         <h1>Школьная Аналитика</h1>
     </div>
-    <div style="display:flex; align-items:center;">
+    <div>
         <span id="statusBar">📂 Загрузить Excel</span>
     </div>
 </header>
@@ -57,38 +55,160 @@
     <div class="tab-link" data-page="subjects">Предметы</div>
     <div class="tab-link" data-page="teachers">Учителя</div>
     <div class="tab-link" data-page="attendance">Посещаемость</div>
-
-    <!-- ⭐ NEW TAB -->
     <div class="tab-link" data-page="students">Ученики</div>
 </div>
 
 <main>
 
-    <!-- ⭐ your whole original OVERVIEW, CLASSES, SUBJECTS, TEACHERS, ATTENDANCE remain untouched -->
+<!-- ====================================================== -->
+<!-- ===================== ОБЗОР PAGE ===================== -->
+<!-- ====================================================== -->
 
-    <!-- ⭐ NEW STUDENTS PAGE -->
-    <div id="students" class="page">
-        <div class="card">
-            <h3>Список учащихся</h3>
+<div id="overview" class="page active">
+    <div class="card">
+        <h3>Общий обзор</h3>
 
-            <div class="controls-row">
-                <label>Класс:</label>
-                <select id="stClassSelect"></select>
+        <div class="controls-row">
+            <label>Четверть:</label>
+            <select id="ovTermSelect"></select>
 
-                <label>Четверть:</label>
-                <select id="stTermSelect"></select>
+            <label>Метрика:</label>
+            <select id="ovMetricSelect">
+                <option value="quality">Качество знаний (%)</option>
+                <option value="avg">Средний балл</option>
+            </select>
 
-                <button id="stRefreshBtn">Обновить</button>
+            <button id="btn-overview-refresh">Обновить</button>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <h3>Всего учащихся</h3>
+                <div id="kpi-students" class="kpi-value">-</div>
             </div>
 
-            <div id="stTableWrapper" class="table-responsive"></div>
+            <div class="card">
+                <h3>Всего учителей</h3>
+                <div id="kpi-teachers" class="kpi-value">-</div>
+            </div>
+        </div>
+
+        <div id="chart-overview-donut" style="height:350px;"></div>
+        <div id="chart-overview-grades" style="height:350px;"></div>
+    </div>
+</div>
+
+
+<!-- ====================================================== -->
+<!-- ===================== КЛАССЫ PAGE ==================== -->
+<!-- ====================================================== -->
+
+<div id="classes" class="page">
+    <div class="card">
+        <h3>Аналитика по классам</h3>
+
+        <div class="controls-row">
+            <label>Четверть:</label>
+            <select id="clsTableTermSelect"></select>
+
+            <label>Метрика:</label>
+            <select id="clsTableMetricSelect">
+                <option value="quality">Качество знаний (%)</option>
+                <option value="average">Средний балл (5-бал.)</option>
+            </select>
+        </div>
+
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr id="class-summary-header"></tr>
+                </thead>
+                <tbody id="class-summary-body"></tbody>
+            </table>
         </div>
     </div>
 
+    <div class="card">
+        <h3>Распределение итогов</h3>
+
+        <div class="controls-row">
+            <label>Класс:</label>
+            <select id="clsDonutClassSelect"></select>
+
+            <label>Четверть:</label>
+            <select id="clsDonutTermSelect"></select>
+        </div>
+
+        <div id="chart-class-donut" style="height:350px;"></div>
+    </div>
+</div>
+
+
+<!-- ====================================================== -->
+<!-- =================== ПРЕДМЕТЫ PAGE ==================== -->
+<!-- ====================================================== -->
+
+<div id="subjects" class="page">
+    <div class="card">
+        <h3>Страница предметов</h3>
+        <p>Функционал будет подключён после загрузки Excel.</p>
+    </div>
+</div>
+
+
+<!-- ====================================================== -->
+<!-- ===================== УЧИТЕЛЯ PAGE =================== -->
+<!-- ====================================================== -->
+
+<div id="teachers" class="page">
+    <div class="card">
+        <h3>Аналитика учителей</h3>
+        <p>Функционал появится после загрузки Excel.</p>
+    </div>
+</div>
+
+
+<!-- ====================================================== -->
+<!-- ================== ПОСЕЩАЕМОСТЬ PAGE ================= -->
+<!-- ====================================================== -->
+
+<div id="attendance" class="page">
+    <div class="card">
+        <h3>Посещаемость</h3>
+        <div id="attendance-chart"></div>
+    </div>
+</div>
+
+
+<!-- ====================================================== -->
+<!-- ===================== УЧЕНИКИ PAGE =================== -->
+<!-- ====================================================== -->
+
+<div id="students" class="page">
+    <div class="card">
+        <h3>Список учащихся</h3>
+
+        <div class="controls-row">
+            <label>Класс:</label>
+            <select id="stClassSelect"></select>
+
+            <label>Четверть:</label>
+            <select id="stTermSelect"></select>
+
+            <button id="stRefreshBtn">Обновить</button>
+        </div>
+
+        <div id="stTableWrapper" class="table-responsive"></div>
+    </div>
+</div>
+
 </main>
 
+<!-- JS LIBRARIES -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+
+<!-- YOUR JS -->
 <script src="utils.js"></script>
 <script src="main.js"></script>
 <script src="llm_cpu.js"></script>
@@ -98,25 +218,24 @@
 <script src="dashboard_class.js"></script>
 <script src="dashboard_subject.js"></script>
 <script src="dashboard_teacher.js"></script>
-
-<!-- ⭐ NEW STUDENTS JS -->
 <script src="dashboard_student.js"></script>
 
 <script>
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener("DOMContentLoaded", () => {
     const links = document.querySelectorAll('.tab-link');
     const pages = document.querySelectorAll('.page');
 
-    function activatePage(pageId) {
-        pages.forEach(p => p.classList.remove('active'));
-        document.getElementById(pageId).classList.add('active');
-        links.forEach(l => l.classList.remove('active'));
-        document.querySelector(`.tab-link[data-page="${pageId}"]`).classList.add('active');
+    function activate(page) {
+        pages.forEach(p => p.classList.remove("active"));
+        document.getElementById(page).classList.add("active");
+
+        links.forEach(l => l.classList.remove("active"));
+        document.querySelector(`.tab-link[data-page="${page}"]`).classList.add("active");
     }
 
-    links.forEach(link =>
-        link.addEventListener('click', () => activatePage(link.dataset.page))
-    );
+    links.forEach(l => {
+        l.addEventListener("click", () => activate(l.dataset.page));
+    });
 });
 </script>
 

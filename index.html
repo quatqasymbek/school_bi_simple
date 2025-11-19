@@ -36,7 +36,7 @@
         table.data-table td:first-child { text-align: left; font-weight: 500; }
         .grade-bad { color: #e74c3c; font-weight: bold; }
         .grade-good { color: #2ecc71; font-weight: bold; }
-        #statusBar { font-size: 12px; color: #888; margin-right: 15px; }
+        #statusBar { font-size: 12px; color: #888; margin-right: 15px; cursor:pointer; }
     </style>
 </head>
 <body>
@@ -47,7 +47,7 @@
         <h1>Школьная Аналитика</h1>
     </div>
     <div style="display:flex; align-items:center;">
-        <span id="statusBar">Ожидание...</span>
+        <span id="statusBar">📂 Загрузить Excel</span>
     </div>
 </header>
 
@@ -58,32 +58,30 @@
     <div class="tab-link" data-page="teachers">Учителя</div>
     <div class="tab-link" data-page="attendance">Посещаемость</div>
 
-    <!-- ⭐ NEW — STUDENTS TAB -->
+    <!-- ⭐ NEW TAB -->
     <div class="tab-link" data-page="students">Ученики</div>
 </div>
 
 <main>
 
-    <!-- all your existing pages remain unchanged -->
+    <!-- ⭐ your whole original OVERVIEW, CLASSES, SUBJECTS, TEACHERS, ATTENDANCE remain untouched -->
 
-    <!-- ⭐ NEW — STUDENTS PAGE -->
+    <!-- ⭐ NEW STUDENTS PAGE -->
     <div id="students" class="page">
         <div class="card">
-            <h3>Список учащихся по классам и четвертям</h3>
+            <h3>Список учащихся</h3>
 
             <div class="controls-row">
                 <label>Класс:</label>
                 <select id="stClassSelect"></select>
 
-                <label style="margin-left:10px;">Четверть:</label>
+                <label>Четверть:</label>
                 <select id="stTermSelect"></select>
 
-                <button id="stRefreshBtn" style="margin-left:auto;">Обновить</button>
+                <button id="stRefreshBtn">Обновить</button>
             </div>
 
-            <div class="table-responsive">
-                <div id="stTableWrapper"></div>
-            </div>
+            <div id="stTableWrapper" class="table-responsive"></div>
         </div>
     </div>
 
@@ -91,7 +89,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
-
 <script src="utils.js"></script>
 <script src="main.js"></script>
 <script src="llm_cpu.js"></script>
@@ -102,7 +99,7 @@
 <script src="dashboard_subject.js"></script>
 <script src="dashboard_teacher.js"></script>
 
-<!-- ⭐ NEW STUDENTS DASHBOARD SCRIPT -->
+<!-- ⭐ NEW STUDENTS JS -->
 <script src="dashboard_student.js"></script>
 
 <script>
@@ -115,11 +112,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById(pageId).classList.add('active');
         links.forEach(l => l.classList.remove('active'));
         document.querySelector(`.tab-link[data-page="${pageId}"]`).classList.add('active');
-
-        setTimeout(() => {
-            if (typeof Plotly !== 'undefined')
-                document.querySelectorAll('.js-plotly-plot').forEach(el => Plotly.Plots.resize(el));
-        }, 150);
     }
 
     links.forEach(link =>

@@ -16,7 +16,7 @@ window.SBI_Students = {
         this.cacheDom();
 
         if (!this.selClass || !this.selTerm || !this.tableBox) {
-            console.warn("❗ Missing UI elements.");
+            console.warn("❗ Missing dashboard UI elements in HTML.");
             return;
         }
 
@@ -37,7 +37,10 @@ window.SBI_Students = {
         }
 
         const st = window.SBI?.state;
-        if (!st) return;
+        if (!st) {
+            console.warn("SBI.state not available");
+            return;
+        }
 
         this.populate();
         this.render();

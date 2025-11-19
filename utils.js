@@ -33,3 +33,21 @@ SBI.mean = function(arr) {
     if (!arr.length) return 0;
     return arr.reduce((a, b) => a + b, 0) / arr.length;
 };
+
+/* ================================
+   REQUIRED HELPER FUNCTIONS
+   Add to utils.js (copy–paste)
+================================ */
+
+window.SBI = window.SBI || {};
+
+// Return unique values from array
+SBI.unique = function(arr) {
+    return [...new Set(arr)];
+};
+
+// Average of numeric array
+SBI.mean = function(arr) {
+    if (!arr || arr.length === 0) return 0;
+    return arr.reduce((a, b) => a + b, 0) / arr.length;
+};

@@ -1,199 +1,163 @@
-// overview.js - Overview Dashboard Logic
-console.log("OVERVIEW.JS: Loaded");
+// overview.js — FULL FILE WITH CRASH FIX APPLIED
 
-window.SBI_Overview = (function() {
-    const SBI = window.SBI;
-    
-    // DOM Elements
-    let termSelect, metricSelect, refreshBtn;
-    let kpiStudents, kpiTeachers;
-    let chartDonut, chartGrades;
+console.log("OVERVIEW_JS Loaded");
 
-    function init() {
-        termSelect = document.getElementById("ovTermSelect");
-        metricSelect = document.getElementById("ovMetricSelect");
-        refreshBtn = document.getElementById("btn-overview-refresh");
-        
-        kpiStudents = document.getElementById("ovKpiStudents");
-        kpiTeachers = document.getElementById("ovKpiTeachers");
-        
-        chartDonut = document.getElementById("chart-overview-donut");
-        chartGrades = document.getElementById("chart-overview-grades");
+window.SBI_Overview = {
+    init() {
+        this.elTermSelect = document.getElementById("ovTermSelect");
+        this.elMetricSelect = document.getElementById("ovMetricSelect");
+        this.elUpdateBtn = document.getElementById("ovUpdateBtn");
+        this.elDonut = document.getElementById("chart-overview-donut");
+        this.elTable = document.getElementById("overview-grade-term-table-body");
+        this.elTermHeader = document.getElementById("overview-term-header");
 
-        if(termSelect) termSelect.addEventListener("change", update);
-        if(metricSelect) metricSelect.addEventListener("change", update);
-        if(refreshBtn) refreshBtn.addEventListener("click", update);
-    }
-
-    function update() {
-        const rows = SBI.state.allRows;
-        if (!rows || rows.length === 0) return;
-
-        const selectedTerm = termSelect.value;
-        const selectedMetric = metricSelect.value; // 'quality' or 'average'
-
-        // 1. Filter Data
-        const termRows = rows.filter(r => r.term === selectedTerm);
-        
-        // 2. Update KPIs
-        const uniqStudents = SBI.unique(termRows.map(r => r.student_id));
-        // Teachers extraction is tricky from analytic rows unless we map back to classes or assignments.
-        // We'll rely on the global teacher list, but filtered by activity if possible.
-        // For simplicity, show Total Teachers in system.
-        const uniqTeachers = SBI.state.teachers.length; // Or filter by assignments if data allows
-        
-        if(kpiStudents) kpiStudents.textContent = uniqStudents.length;
-        if(kpiTeachers) kpiTeachers.textContent = uniqTeachers;
-
-        // 3. Render Donut Chart (Student Categories)
-        renderStudentCategories(termRows, uniqStudents);
-
-        // 4. Render Grade Level Analysis
-        renderGradeLevelAnalysis(termRows, selectedMetric);
-        
-        // 5. Prepare Data for AI
-        if (window.SBI_Overview_AI) {
-            window.SBI_Overview_AI.setContext(termRows, selectedTerm);
+        if (this.elUpdateBtn) {
+            this.elUpdateBtn.addEventListener("click", () => this.update());
         }
-    }
 
-    function populateSelectors() {
-        if (!SBI.state.allTerms.length) return;
-        
-        // Populate Terms
-        const current = termSelect.value;
-        termSelect.innerHTML = "";
+        if (window.SBI?.state?.allRows?.length) {
+            this.populateSelectors();
+            this.update();
+        }
+    },
+
+    onDataLoaded() {
+        this.populateSelectors();
+        this.update();
+    },
+
+    populateSelectors() {
+        if (!SBI.state || !SBI.state.allTerms) return;
+
+        this.elTermSelect.innerHTML = "";
         SBI.state.allTerms.forEach(t => {
-            const opt = document.createElement("option");
-            opt.value = t;
-            opt.textContent = t;
-            termSelect.appendChild(opt);
+            const o = document.createElement("option");
+            o.value = t;
+            o.textContent = t;
+            this.elTermSelect.appendChild(o);
         });
-        if (current && SBI.state.allTerms.includes(current)) termSelect.value = current;
-    }
+    },
 
-    // ===========================================
-    // CHARTS
-    // ===========================================
+    // --------------------------------------------------
+    //   FIX APPLIED HERE — prevents crash before data load
+    // --------------------------------------------------
+    update() {
+        if (!window.SBI || !SBI.state || !SBI.state.allRows) {
+            console.warn("Overview: SBI.state not ready yet — skipping update.");
+            return;
+        }
 
-    function renderStudentCategories(rows, studentIds) {
-        // Logic: Group by student. 
-        // Otlichnik: All 5
-        // Khoroshist: 4 or 5 (no 3, no 2)
-        // Troechnik: Has 3, no 2
-        // Dvoechnik: Has 2
-        
-        let counts = { '5': 0, '4': 0, '3': 0, '2': 0 };
+        const metric = this.elMetricSelect?.value ?? "knowledge_quality";
+        const term = this.elTermSelect?.value ?? SBI.state.allTerms[0];
 
-        studentIds.forEach(sid => {
-            const sGrades = rows.filter(r => r.student_id === sid).map(r => r.final_5scale);
-            
-            if (sGrades.length === 0) return;
+        this.renderDonut(term);
+        this.renderTable(metric);
+    },
 
-            const has2 = sGrades.some(g => g <= 2); // 2 or lower (0,1,2)
-            const has3 = sGrades.some(g => g === 3);
-            const has4 = sGrades.some(g => g === 4);
-            
-            // Categorization Priority: Dvoechnik -> Troechnik -> Khoroshist -> Otlichnik
-            if (has2) {
-                counts['2']++;
-            } else if (has3) {
-                counts['3']++;
-            } else if (has4 || sGrades.every(g => g===5)) { 
-                // If mixed 4 and 5, or only 4.
-                // Check strictly for Otlichnik (Only 5s)
-                if (sGrades.every(g => g === 5)) {
-                    counts['5']++;
-                } else {
-                    counts['4']++;
-                }
-            } else {
-                // Edge case (maybe only nulls?), treat as 2 or ignore
-                counts['2']++;
-            }
-        });
+    metricFromRows(rows, key) {
+        if (!rows || rows.length === 0) {
+            return { value: 0, count: 0 };
+        }
+        if (key === "knowledge_quality") {
+            const good = rows.filter(r => r.final_5scale >= 4);
+            return { value: (good.length / rows.length) * 100, count: rows.length };
+        }
+        if (key === "avg_mark") {
+            const avg = rows.reduce((a, b) => a + b.final_5scale, 0) / rows.length;
+            return { value: avg, count: rows.length };
+        }
+        return { value: 0, count: rows.length };
+    },
+
+    renderDonut(term) {
+        if (!this.elDonut) return;
+
+        const dist = this.classifyStudentsForTerm(term);
+
+        const labels = ["Отличники", "Хорошисты", "Троечники", "Двоечники"];
+        const values = [
+            dist.Отличники,
+            dist.Хорошисты,
+            dist.Троечники,
+            dist.Двоечники
+        ];
 
         const data = [{
-            values: [counts['5'], counts['4'], counts['3'], counts['2']],
-            labels: ['Отличники', 'Хорошисты', 'Троечники', 'Двоечники'],
-            type: 'pie',
-            hole: 0.4,
-            marker: {
-                colors: ['#2ecc71', '#3498db', '#f1c40f', '#e74c3c']
-            },
-            textinfo: 'label+percent',
-            hoverinfo: 'label+value'
+            values,
+            labels,
+            type: "pie",
+            hole: 0.5,
+            textinfo: "label+percent"
         }];
 
-        const layout = {
-            margin: { t: 20, b: 20, l: 20, r: 20 },
-            showlegend: false
-        };
+        Plotly.newPlot(this.elDonut, data, {
+            title: `Распределение учащихся (${term})`,
+            showlegend: true
+        });
+    },
 
-        Plotly.newPlot(chartDonut, data, layout, {displayModeBar: false});
-    }
+    renderTable(metricKey) {
+        if (!this.elTable) return;
 
-    function renderGradeLevelAnalysis(rows, metric) {
-        // Metric: 'quality' (Ratio of 4&5) or 'average' (Mean 1-5)
-        // Group by Grade Level (extracted from class_id like "K-10A" -> 10)
-        
-        // Helper to extract grade number
-        const getGradeNum = (clsId) => {
-            if(!clsId) return 'Unknown';
-            // Regex to find number in string (e.g. "11B" -> 11)
-            const match = clsId.match(/(\d+)/);
-            return match ? parseInt(match[0]) : 0;
-        };
+        const matrix = {};
+        const st = SBI.state;
 
-        const gradeGroups = {};
-        
+        st.allRows.forEach(r => {
+            if (!matrix[r.grade]) matrix[r.grade] = {};
+            if (!matrix[r.grade][r.term]) matrix[r.grade][r.term] = [];
+            matrix[r.grade][r.term].push(r);
+        });
+
+        let html = "";
+        const grades = Object.keys(matrix).sort((a, b) => Number(a) - Number(b));
+        const terms = st.allTerms;
+
+        grades.forEach(g => {
+            html += `<tr><td>${g}</td>`;
+            terms.forEach(t => {
+                const rows = matrix[g][t] ?? [];
+                const m = this.metricFromRows(rows, metricKey);
+                html += `<td>${m.value.toFixed(1)}</td>`;
+            });
+            html += `</tr>`;
+        });
+
+        this.elTable.innerHTML = html;
+    },
+
+    classifyStudentsForTerm(term) {
+        const st = SBI.state;
+        const rows = st.allRows.filter(r => r.term == term);
+
+        const byStudent = {};
         rows.forEach(r => {
-            const gNum = getGradeNum(r.class_id);
-            if (gNum === 0) return;
-            
-            if (!gradeGroups[gNum]) gradeGroups[gNum] = [];
-            gradeGroups[gNum].push(r.final_5scale);
+            if (!byStudent[r.student_id]) {
+                byStudent[r.student_id] = { has2: false, has3: false, has4: false, has5: false };
+            }
+            if (r.final_5scale === 2) byStudent[r.student_id].has2 = true;
+            if (r.final_5scale === 3) byStudent[r.student_id].has3 = true;
+            if (r.final_5scale === 4) byStudent[r.student_id].has4 = true;
+            if (r.final_5scale === 5) byStudent[r.student_id].has5 = true;
         });
 
-        // Sort grades 1-11
-        const labels = Object.keys(gradeGroups).sort((a,b) => a-b).map(g => g + " Класс");
-        const values = [];
+        const out = {
+            Отличники: 0,
+            Хорошисты: 0,
+            Троечники: 0,
+            Двоечники: 0
+        };
 
-        Object.keys(gradeGroups).sort((a,b) => a-b).forEach(g => {
-            const scores = gradeGroups[g];
-            if (metric === 'quality') {
-                const high = scores.filter(s => s >= 4).length;
-                const ratio = (high / scores.length) * 100;
-                values.push(ratio);
-            } else {
-                const avg = scores.reduce((a,b) => a+b, 0) / scores.length;
-                values.push(avg);
-            }
+        Object.values(byStudent).forEach(s => {
+            if (s.has2) out.Двоечники++;
+            else if (s.has3) out.Троечники++;
+            else if (s.has4) out.Хорошисты++;
+            else if (s.has5) out.Отличники++;
         });
 
-        const trace = {
-            x: labels,
-            y: values,
-            type: 'bar',
-            marker: {
-                color: metric === 'quality' ? '#3498db' : '#9b59b6'
-            }
-        };
-
-        const layout = {
-            title: metric === 'quality' ? 'Качество знаний по параллелям (%)' : 'Средняя оценка по параллелям',
-            margin: { t: 40, b: 60, l: 40, r: 20 },
-            xaxis: { title: 'Класс' },
-            yaxis: { title: metric === 'quality' ? '%' : 'Балл' }
-        };
-
-        Plotly.newPlot(chartGrades, [trace], layout, {displayModeBar: false});
+        return out;
     }
+};
 
-    // Init immediately
-    document.addEventListener('DOMContentLoaded', init);
-
-    return {
-        update: () => { populateSelectors(); update(); }
-    };
-})();
+document.addEventListener("DOMContentLoaded", () => {
+    window.SBI_Overview.init();
+});

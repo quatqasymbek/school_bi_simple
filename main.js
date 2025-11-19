@@ -8,11 +8,11 @@ const SBI = window.SBI;
 // 1. STATE MANAGEMENT
 // ==========================================
 SBI.state = {
-    allRows: [], // The processed analytic rows
+    allRows: [], 
     students: [],
-    teachers: [], // List of teachers
-    teacherQuals: [], // Qualification definitions
-    assignments: [], // Link between Class+Subject+Term -> Teacher
+    teachers: [], 
+    teacherQuals: [], 
+    assignments: [], 
     classes: [],
     subjects: [],
     terms: [],
@@ -78,28 +78,47 @@ SBI.loadData = async function(files) {
         try {
             const data = await file.arrayBuffer();
             const workbook = XLSX.read(data);
-            
-            const getSheet = (name) => {
-                const sn = workbook.SheetNames.find(n => n.toUpperCase().includes(name.toUpperCase()));
-                if (!sn) return [];
-                return XLSX.utils.sheet_to_json(workbook.Sheets[sn]);
+            const fileName = file.name.toUpperCase();
+
+            // Helper: Try to find data by Sheet Name first, then by File Name
+            const getData = (keyword) => {
+                const key = keyword.toUpperCase();
+                
+                // 1. Try Sheet Name
+                const sn = workbook.SheetNames.find(n => n.toUpperCase().includes(key));
+                if (sn) return XLSX.utils.sheet_to_json(workbook.Sheets[sn]);
+
+                // 2. Try File Name (if checking a CSV)
+                if (fileName.includes(key)) {
+                    // Return first sheet content
+                    const firstSheet = workbook.SheetNames[0];
+                    return XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet]);
+                }
+                return [];
             };
 
             // Accumulate Data
-            state.students = state.students.concat(getSheet("УЧАЩИЕСЯ"));
-            state.teachers = state.teachers.concat(getSheet("УЧИТЕЛЯ"));
-            state.classes = state.classes.concat(getSheet("КЛАССЫ"));
-            state.subjects = state.subjects.concat(getSheet("ПРЕДМЕТЫ"));
-            state.terms = state.terms.concat(getSheet("ЧЕТВЕРТИ"));
+            state.students = state.students.concat(getData("УЧАЩИЕСЯ"));
+            state.teachers = state.teachers.concat(getData("УЧИТЕЛЯ"));
+            state.classes = state.classes.concat(getData("КЛАССЫ"));
+            state.subjects = state.subjects.concat(getData("ПРЕДМЕТЫ"));
+            state.terms = state.terms.concat(getData("ЧЕТВЕРТИ"));
             
             // New Sheets for Teachers Page
-            state.assignments = state.assignments.concat(getSheet("НАЗНАЧЕНИЯ")); // Matches "НАЗНАЧЕНИЯ_ПРЕПОД"
-            state.teacherQuals = state.teacherQuals.concat(getSheet("QUALS")); // Matches "TEACHER_QUALS"
-
-            rawGrades = rawGrades.concat(getSheet("ОЦЕНКИ"));
-            rawWeights = rawWeights.concat(getSheet("ВЕСА")); 
-            rawScale = rawScale.concat(getSheet("ШКАЛА")); 
-            state.attendanceRows = state.attendanceRows.concat(getSheet("ПОСЕЩАЕМОСТЬ"));
+            // "НАЗНАЧЕНИЯ" covers "НАЗНАЧЕНИЯ_ПРЕПОД"
+            state.assignments = state.assignments.concat(getData("НАЗНАЧЕНИЯ")); 
+            // "QUALS" covers "TEACHER_QUALS"
+            state.teacherQuals = state.teacherQuals.concat(getData("QUALS")); 
+            
+            rawGrades = rawGrades.concat(getData("ОЦЕНКИ"));
+            
+            // Weights sometimes named "ВЕСА" or "ВЕСА_ОЦЕНОК"
+            rawWeights = rawWeights.concat(getData("ВЕСА")); 
+            
+            // Scale sometimes "ШКАЛА" or "ШКАЛА_5Б"
+            rawScale = rawScale.concat(getData("ШКАЛА")); 
+            
+            state.attendanceRows = state.attendanceRows.concat(getData("ПОСЕЩАЕМОСТЬ"));
 
         } catch (e) {
             console.error("Error reading file:", file.name, e);
@@ -214,7 +233,7 @@ function processAnalytics(grades, weightsRaw, scaleRaw) {
     SBI.state.allRows = finalRows;
     SBI.state.allTerms = SBI.unique(finalRows.map(r => r.term));
     
-    console.log(`Data Processed: ${finalRows.length} rows, ${SBI.state.classes.length} classes.`);
+    console.log(`Data Processed: ${finalRows.length} rows, ${SBI.state.classes.length} classes, ${SBI.state.teachers.length} teachers.`);
 }
 
 document.addEventListener('DOMContentLoaded', () => {

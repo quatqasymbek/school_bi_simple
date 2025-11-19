@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <title>Школьная Аналитика (BI)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <style>
         :root { --primary: #123b71; --bg: #f4f7f6; --card-bg: #ffffff; --text: #333; --border: #dde2e5; }
         * { box-sizing: border-box; }
@@ -15,10 +16,12 @@
         .tab-link.active { color: #fff; border-bottom-color: #fff; font-weight: 500; }
         main { flex: 1; overflow-y: auto; padding: 20px; }
         .page { display: none; }
-        .page.active { display: block; }
+        .page.active { display: block; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .grid-1 { display: grid; grid-template-columns: 1fr; gap: 20px; }
         .card { background: var(--card-bg); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 20px; }
-        .card h3 { margin-top: 0; font-size: 1rem; color: #555; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .card h3 { margin-top: 0; font-size: 1rem; color: #555; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px;}
         .controls-row { display: flex; gap: 15px; margin-bottom: 15px; align-items: center; flex-wrap: wrap; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid var(--border); }
         select, button { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; }
         button { background: var(--primary); color: white; border: none; cursor: pointer; }
@@ -27,23 +30,24 @@
         .kpi-label { font-size: 0.9rem; color: #777; margin-top: 5px; }
         .ai-box { background: #eef2f6; border-left: 4px solid var(--primary); padding: 15px; margin-top: 15px; min-height: 60px; }
         .table-responsive { overflow-x: auto; }
-        table.data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        table.data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; white-space: nowrap; }
         table.data-table th, table.data-table td { padding: 10px 15px; text-align: center; border-bottom: 1px solid #eee; }
         table.data-table th { background: #f9f9f9; font-weight: 600; color: #555; text-align: left; }
-        #statusBar { font-size: 12px; color: #888; margin-left: 15px; }
-        .upload-btn { background: #27ae60; padding: 10px 20px; border-radius: 4px; cursor: pointer; color:#fff; text-decoration:none; }
+        table.data-table td:first-child { text-align: left; font-weight: 500; }
+        .grade-bad { color: #e74c3c; font-weight: bold; }
+        .grade-good { color: #2ecc71; font-weight: bold; }
+        #statusBar { font-size: 12px; color: #888; margin-right: 15px; }
     </style>
 </head>
 <body>
 
 <header>
     <div style="display:flex; align-items:center; gap:10px;">
-        <span>📊 Школьная Аналитика</span>
+        <span>📊</span>
+        <h1>Школьная Аналитика</h1>
     </div>
-    <div style="display:flex; align-items:center; gap:15px;">
-        <label class="upload-btn" for="excelUpload">Загрузить Excel</label>
-        <input type="file" id="excelUpload" accept=".xlsx,.xls" />
-        <span id="statusBar">Готово к работе</span>
+    <div style="display:flex; align-items:center;">
+        <span id="statusBar">Ожидание...</span>
     </div>
 </header>
 
@@ -53,77 +57,158 @@
     <div class="tab-link" data-page="subjects">Предметы</div>
     <div class="tab-link" data-page="teachers">Учителя</div>
     <div class="tab-link" data-page="attendance">Посещаемость</div>
-    <div class="tab-link" data-page="students">Ученики</div>
 </div>
 
 <main>
-    <!-- Обзор -->
+    <!-- OVERVIEW -->
     <div id="overview" class="page active">
         <div class="controls-row">
             <div><label>Четверть:</label><select id="ovTermSelect"></select></div>
-            <div><label>Метрика:</label><select id="ovMetricSelect">
-                <option value="quality">Качество знаний (%)</option>
-                <option value="average">Средняя оценка (1-5)</option>
-            </select></div>
-            <div style="margin-left:auto;"><button id="btn-overview-refresh">Обновить</button></div>
+            <div><label>Метрика:</label><select id="ovMetricSelect"><option value="quality">Качество знаний (%)</option><option value="average">Средняя оценка (1-5)</option></select></div>
+            <div style="margin-left: auto;"><button id="btn-overview-refresh">Обновить</button></div>
         </div>
         <div class="grid-2">
-            <div class="card" style="text-align:center;"><div class="kpi-value" id="ovKpiStudents">-</div><div class="kpi-label">Всего учащихся</div></div>
-            <div class="card" style="text-align:center;"><div class="kpi-value" id="ovKpiTeachers">-</div><div class="kpi-label">Всего учителей</div></div>
+            <div class="card" style="text-align: center;"><div class="kpi-value" id="ovKpiStudents">-</div><div class="kpi-label">Всего учащихся</div></div>
+            <div class="card" style="text-align: center;"><div class="kpi-value" id="ovKpiTeachers">-</div><div class="kpi-label">Всего учителей</div></div>
         </div>
         <div class="grid-2">
-            <div class="card"><h3>Успеваемость</h3><div id="chart-overview-donut" style="height:350px;"></div></div>
-            <div class="card"><h3>По параллелям</h3><div id="chart-overview-grades" style="height:350px;"></div></div>
+            <div class="card"><h3>Успеваемость</h3><div id="chart-overview-donut" style="height: 350px;"></div></div>
+            <div class="card"><h3>По параллелям</h3><div id="chart-overview-grades" style="height: 350px;"></div></div>
         </div>
         <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h3>🧠 AI Аналитик</h3>
-                <button id="btn-overview-ai">Объяснить тренд</button>
-            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center;"><h3>🧠 AI Аналитик</h3><button id="btn-overview-ai">✨ Объяснить тренд</button></div>
             <div id="overview-ai-output" class="ai-box">Загрузите данные для анализа.</div>
         </div>
     </div>
 
-    <!-- Классы --><div id="classes" class="page"><div class="card"><h3>По классам</h3><div id="chart-class-avg" class="table-responsive"></div></div><div class="card"><div class="controls-row"><label>Четверть:</label><select id="classTermSelect"></select><label style="margin-left:15px;">Класс:</label><select id="classClassSelect"></select></div><div id="chart-class-dist" style="height:400px;"></div></div></div>
-    <!-- Предметы --><div id="subjects" class="page"><div class="card"><div class="controls-row"><label>Предмет:</label><select id="subjectSubjectSelect"></select><label style="margin-left:15px;">Четверть:</label><select id="subjectTermSelect"></select></div><div class="grid-2"><div id="chart-subject-class" style="height:350px;"></div><div id="chart-subject-dist" style="height:350px;"></div></div><div class="grid-2" style="margin-top:20px;"><div id="chart-subject-trend" style="height:350px;"></div><div id="chart-subject-heatmap" style="height:350px;"></div></div></div></div>
-    <!-- Учителя --><div id="teachers" class="page"><div class="card"><div class="controls-row"><label>Учитель:</label><select id="teacherSelect"></select><label style="margin-left:15px;">Предмет:</label><select id="teacherSubjectSelect"></select></div><div class="grid-2"><div id="chart-teacher-performance" style="height:400px;"></div><div id="chart-teacher-subjects" style="height:400px;"></div></div><div style="margin-top:20px;"><div id="chart-teacher-trend" style="height:350px;"></div></div></div></div>
-    <!-- Посещаемость --><div id="attendance" class="page"><div class="card"><h3>Сводка</h3><div class="controls-row"><label>Четверть:</label><select id="attTermSummary"></select></div><div id="attSummaryTableWrapper" class="table-responsive"></div></div><div class="card"><h3>По ученикам</h3><div class="controls-row"><label>Четверть:</label><select id="attTermDetail"></select><label style="margin-left:15px;">Класс:</label><select id="attClassDetail"></select></div><div id="attDetailTableWrapper" class="table-responsive"></div></div></div>
-    <!-- Ученики --><div id="students" class="page"><div class="card"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;"><h3>Итоговые оценки учеников</h3><div class="controls-row"><label>Класс:</label><select id="studClassSelect"></select><label style="margin-left:15px;">Четверть:</label><select id="studTermSelect"></select></div></div><div class="table-responsive"><div id="studentsTableWrapper"><p style="padding:30px;text-align:center;color:#999;">Выберите класс и четверть</p></div></div></div></div>
+    <!-- CLASSES -->
+    <div id="classes" class="page">
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
+                <h3>Сводная таблица</h3>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <label>Акцент:</label><select id="clsTableTermSelect"></select>
+                    <label>Метрика:</label><select id="clsTableMetricSelect"><option value="quality">Качество знаний (%)</option><option value="average">Средняя оценка</option></select>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table" id="class-summary-table">
+                    <thead><tr id="class-summary-header"><th>Класс</th><th>Кл. Руководитель</th></tr></thead>
+                    <tbody id="class-summary-body"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; flex-wrap:wrap;">
+                <h3>Детальный анализ класса</h3>
+                <div class="controls-row" style="margin-bottom:0; padding: 5px 10px; border:none;">
+                    <label>Четверть:</label><select id="clsDonutTermSelect"></select>
+                    <label style="margin-left:10px;">Класс:</label><select id="clsDonutClassSelect"></select>
+                </div>
+            </div>
+            <div id="chart-class-donut" style="height:400px;"></div>
+        </div>
+    </div>
+
+    <!-- SUBJECTS -->
+    <div id="subjects" class="page">
+        <div class="card">
+            <h3>Анализ по предметам</h3>
+            <div class="controls-row">
+                <label>Предмет:</label><select id="subjectSubjectSelect"></select>
+                <label>Четверть:</label><select id="subjectTermSelect"></select>
+            </div>
+            <div id="chart-subject-heatmap" style="height:400px;"></div>
+        </div>
+    </div>
+
+    <!-- TEACHERS (NEW) -->
+    <div id="teachers" class="page">
+        <!-- Block 1: Qualifications Donut -->
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h3>Квалификация педагогического состава</h3>
+                <div class="controls-row" style="margin:0; padding:5px; border:none;">
+                    <label>Четверть:</label><select id="teachQualTermSelect"></select>
+                </div>
+            </div>
+            <div id="chart-teacher-qual" style="height:350px;"></div>
+        </div>
+
+        <!-- Block 2: Matrix Table -->
+        <div class="card">
+             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3>Мониторинг успеваемости по учителям</h3>
+                <div class="controls-row" style="margin:0; padding:5px; border:none;">
+                    <label>Метрика:</label>
+                    <select id="teachTableMetricSelect">
+                        <option value="quality">Качество знаний (%)</option>
+                        <option value="average">Средняя оценка</option>
+                    </select>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ФИО Учителя</th>
+                            <th>Предмет(ы)</th>
+                            <th>Квалификация</th>
+                            <!-- JS will assume 4 terms max or dynamically add -->
+                            <th>2024-T1</th><th>2024-T2</th><th>2025-T3</th><th>2025-T4</th>
+                        </tr>
+                    </thead>
+                    <tbody id="teachTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Block 3: Individual Pie -->
+        <div class="grid-1">
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+                    <h3>Персональный анализ результатов</h3>
+                    <div class="controls-row" style="margin:0; padding:5px; border:none;">
+                        <label>Учитель:</label><select id="teachPerfTeacherSelect"></select>
+                        <label style="margin-left:10px;">Четверть:</label><select id="teachPerfTermSelect"></select>
+                    </div>
+                </div>
+                <div id="chart-teacher-perf" style="height:400px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ATTENDANCE -->
+    <div id="attendance" class="page">
+        <div class="card"><h3>Посещаемость (Сводка)</h3><div class="controls-row"><select id="attTermSummary"></select></div><div id="attSummaryTableWrapper" class="table-responsive"></div></div>
+        <div class="card"><h3>Детализация по классам</h3><div class="controls-row"><select id="attTermDetail"></select><select id="attClassDetail"></select></div><div id="attDetailTableWrapper" class="table-responsive"></div></div>
+    </div>
 </main>
 
-<!-- Правильный порядок загрузки скриптов -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
-
 <script src="utils.js"></script>
-<script src="main.js"></script>  <!-- Здесь создаётся window.SBI -->
+<script src="main.js"></script>
 <script src="llm_cpu.js"></script>
-
-<!-- Теперь можно подключать все дашборды — SBI уже существует -->
 <script src="overview.js"></script>
 <script src="overview_ai.js"></script>
 <script src="attendance.js"></script>
 <script src="dashboard_class.js"></script>
 <script src="dashboard_subject.js"></script>
 <script src="dashboard_teacher.js"></script>
-<script src="dashboard_students.js"></script>
 
 <script>
-    // Переключение вкладок
     document.addEventListener('DOMContentLoaded', () => {
         const links = document.querySelectorAll('.tab-link');
         const pages = document.querySelectorAll('.page');
-        function show(pageId) {
+        function activatePage(pageId) {
             pages.forEach(p => p.classList.remove('active'));
-            const page = document.getElementById(pageId);
-            if (page) page.classList.add('active');
+            document.getElementById(pageId).classList.add('active');
             links.forEach(l => l.classList.remove('active'));
-            const link = document.querySelector(`.tab-link[data-page="${pageId}"]`);
-            if (link) link.classList.add('active');
-            setTimeout(() => Plotly?.Plots?.resize && document.querySelectorAll('.js-plotly-plot').forEach(Plotly.Plots.resize), 100);
+            document.querySelector(`.tab-link[data-page="${pageId}"]`).classList.add('active');
+            setTimeout(() => { if(typeof Plotly!=='undefined') document.querySelectorAll('.js-plotly-plot').forEach(el => Plotly.Plots.resize(el)); }, 100);
         }
-        links.forEach(l => l.addEventListener('click', () => show(l.dataset.page)));
-        show('overview');
+        links.forEach(link => link.addEventListener('click', () => activatePage(link.dataset.page)));
     });
 </script>
 </body>

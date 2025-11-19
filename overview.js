@@ -1,15 +1,21 @@
-// overview.js — FULL FILE WITH CRASH FIX APPLIED
+// ===============================
+//  overview.js  (FULL, FIXED)
+// ===============================
 
 console.log("OVERVIEW_JS Loaded");
 
 window.SBI_Overview = {
     init() {
-        this.elTermSelect = document.getElementById("ovTermSelect");
+        this.elTermSelect   = document.getElementById("ovTermSelect");
         this.elMetricSelect = document.getElementById("ovMetricSelect");
-        this.elUpdateBtn = document.getElementById("ovUpdateBtn");
-        this.elDonut = document.getElementById("chart-overview-donut");
-        this.elTable = document.getElementById("overview-grade-term-table-body");
-        this.elTermHeader = document.getElementById("overview-term-header");
+        this.elUpdateBtn    = document.getElementById("btn-overview-refresh");
+
+        this.elDonut   = document.getElementById("chart-overview-donut");
+        this.elGrades  = document.getElementById("chart-overview-grades");
+        this.elAiOut   = document.getElementById("overview-ai-output");
+
+        this.elKpiStudents = document.getElementById("ovKpiStudents");
+        this.elKpiTeachers = document.getElementById("ovKpiTeachers");
 
         if (this.elUpdateBtn) {
             this.elUpdateBtn.addEventListener("click", () => this.update());
@@ -31,131 +37,102 @@ window.SBI_Overview = {
 
         this.elTermSelect.innerHTML = "";
         SBI.state.allTerms.forEach(t => {
-            const o = document.createElement("option");
-            o.value = t;
-            o.textContent = t;
-            this.elTermSelect.appendChild(o);
+            const opt = document.createElement("option");
+            opt.value = t;
+            opt.textContent = t;
+            this.elTermSelect.appendChild(opt);
         });
     },
 
-    // --------------------------------------------------
-    //   FIX APPLIED HERE — prevents crash before data load
-    // --------------------------------------------------
+    // --------------------------------------------------------
+    // ✔ FIX — Prevent crash when data not loaded yet
+    // --------------------------------------------------------
     update() {
-        if (!window.SBI || !SBI.state || !SBI.state.allRows) {
-            console.warn("Overview: SBI.state not ready yet — skipping update.");
+        if (!window.SBI || !SBI.state || !Array.isArray(SBI.state.allRows)) {
+            console.warn("Overview: data not ready, skipping update.");
             return;
         }
 
-        const metric = this.elMetricSelect?.value ?? "knowledge_quality";
-        const term = this.elTermSelect?.value ?? SBI.state.allTerms[0];
+        const term = this.elTermSelect.value || SBI.state.allTerms[0];
+        const metric = this.elMetricSelect.value;
 
+        this.updateKPIs();
         this.renderDonut(term);
-        this.renderTable(metric);
+        this.renderGradeBars();
     },
 
-    metricFromRows(rows, key) {
-        if (!rows || rows.length === 0) {
-            return { value: 0, count: 0 };
-        }
-        if (key === "knowledge_quality") {
-            const good = rows.filter(r => r.final_5scale >= 4);
-            return { value: (good.length / rows.length) * 100, count: rows.length };
-        }
-        if (key === "avg_mark") {
-            const avg = rows.reduce((a, b) => a + b.final_5scale, 0) / rows.length;
-            return { value: avg, count: rows.length };
-        }
-        return { value: 0, count: rows.length };
+    updateKPIs() {
+        const st = SBI.state;
+        this.elKpiStudents.textContent = st.students.length || "-";
+        this.elKpiTeachers.textContent = st.teachers.length || "-";
     },
 
     renderDonut(term) {
         if (!this.elDonut) return;
 
-        const dist = this.classifyStudentsForTerm(term);
+        const rows = SBI.state.allRows.filter(r => r.term == term);
 
-        const labels = ["Отличники", "Хорошисты", "Троечники", "Двоечники"];
-        const values = [
-            dist.Отличники,
-            dist.Хорошисты,
-            dist.Троечники,
-            dist.Двоечники
-        ];
+        let groups = { dvoe: 0, troe: 0, horo: 0, otl: 0 };
+        const byStudent = {};
+
+        rows.forEach(r => {
+            if (!byStudent[r.student_id]) {
+                byStudent[r.student_id] = { min: 5 };
+            }
+            if (r.final_5scale < byStudent[r.student_id].min) {
+                byStudent[r.student_id].min = r.final_5scale;
+            }
+        });
+
+        Object.values(byStudent).forEach(s => {
+            if (s.min <= 2) groups.dvoe++;
+            else if (s.min == 3) groups.troe++;
+            else if (s.min == 4) groups.horo++;
+            else groups.otl++;
+        });
 
         const data = [{
-            values,
-            labels,
             type: "pie",
             hole: 0.5,
-            textinfo: "label+percent"
+            labels: ["Отличники", "Хорошисты", "Троечники", "Двоечники"],
+            values: [groups.otl, groups.horo, groups.troe, groups.dvoe],
+            textinfo: "label+percent",
         }];
 
         Plotly.newPlot(this.elDonut, data, {
-            title: `Распределение учащихся (${term})`,
-            showlegend: true
+            title: `Распределение по итогам четверти`,
         });
     },
 
-    renderTable(metricKey) {
-        if (!this.elTable) return;
+    renderGradeBars() {
+        if (!this.elGrades) return;
 
-        const matrix = {};
-        const st = SBI.state;
+        const rows = SBI.state.allRows;
 
-        st.allRows.forEach(r => {
-            if (!matrix[r.grade]) matrix[r.grade] = {};
-            if (!matrix[r.grade][r.term]) matrix[r.grade][r.term] = [];
-            matrix[r.grade][r.term].push(r);
-        });
-
-        let html = "";
-        const grades = Object.keys(matrix).sort((a, b) => Number(a) - Number(b));
-        const terms = st.allTerms;
-
-        grades.forEach(g => {
-            html += `<tr><td>${g}</td>`;
-            terms.forEach(t => {
-                const rows = matrix[g][t] ?? [];
-                const m = this.metricFromRows(rows, metricKey);
-                html += `<td>${m.value.toFixed(1)}</td>`;
-            });
-            html += `</tr>`;
-        });
-
-        this.elTable.innerHTML = html;
-    },
-
-    classifyStudentsForTerm(term) {
-        const st = SBI.state;
-        const rows = st.allRows.filter(r => r.term == term);
-
-        const byStudent = {};
+        const byGrade = {};
         rows.forEach(r => {
-            if (!byStudent[r.student_id]) {
-                byStudent[r.student_id] = { has2: false, has3: false, has4: false, has5: false };
-            }
-            if (r.final_5scale === 2) byStudent[r.student_id].has2 = true;
-            if (r.final_5scale === 3) byStudent[r.student_id].has3 = true;
-            if (r.final_5scale === 4) byStudent[r.student_id].has4 = true;
-            if (r.final_5scale === 5) byStudent[r.student_id].has5 = true;
+            const g = r.grade;
+            if (!byGrade[g]) byGrade[g] = [];
+            byGrade[g].push(r.final_5scale);
         });
 
-        const out = {
-            Отличники: 0,
-            Хорошисты: 0,
-            Троечники: 0,
-            Двоечники: 0
-        };
+        const grades = Object.keys(byGrade).sort((a,b)=>a-b);
+        const avg = grades.map(g => 
+            (byGrade[g].reduce((a,b)=>a+b,0) / byGrade[g].length).toFixed(2)
+        );
 
-        Object.values(byStudent).forEach(s => {
-            if (s.has2) out.Двоечники++;
-            else if (s.has3) out.Троечники++;
-            else if (s.has4) out.Хорошисты++;
-            else if (s.has5) out.Отличники++;
+        const data = [{
+            x: grades,
+            y: avg,
+            type: "bar",
+            marker: { color: "#2c78e0" }
+        }];
+
+        Plotly.newPlot(this.elGrades, data, {
+            title: "Средняя оценка по параллелям",
+            yaxis: { range: [2,5] }
         });
-
-        return out;
-    }
+    },
 };
 
 document.addEventListener("DOMContentLoaded", () => {

@@ -58,3 +58,14 @@ SBI.formatPercent = function(v) {
     if (v == null) return "-";
     return Number(v).toFixed(1) + "%";
 };
+
+window.SBI = window.SBI || {};
+
+SBI.unique = function(arr) {
+  return [...new Set(arr)];
+};
+
+SBI.mean = function(arr) {
+  if (!arr || arr.length === 0) return 0;
+  return arr.reduce((a,b) => a + Number(b || 0), 0) / arr.length;
+};

@@ -1,11 +1,10 @@
 // ===============================
-// dashboard_student.js (FIXED)
+// dashboard_student.js (FIXED FINAL)
 // ===============================
 
 console.log("DASHBOARD_STUDENT Loaded");
 
 window.SBI_Students = {
-    // Cache DOM references (used by init + onDataLoaded)
     cacheDom() {
         this.selClass = document.getElementById("stClassSelect");
         this.selTerm  = document.getElementById("stTermSelect");
@@ -16,9 +15,8 @@ window.SBI_Students = {
     init() {
         this.cacheDom();
 
-        // If critical DOM elements are missing, do nothing (avoid runtime errors)
         if (!this.selClass || !this.selTerm || !this.tableBox) {
-            console.warn("SBI_Students.init: Missing required DOM elements.");
+            console.warn("❗ Missing UI elements.");
             return;
         }
 
@@ -33,23 +31,13 @@ window.SBI_Students = {
         }
     },
 
-    // Call this after data is loaded into SBI.state
     onDataLoaded() {
-        // Ensure DOM is cached (in case this was called before init or outside DOMContentLoaded)
         if (!this.selClass || !this.selTerm || !this.tableBox) {
             this.cacheDom();
         }
 
         const st = window.SBI?.state;
-        if (!st) {
-            console.warn("SBI_Students.onDataLoaded: SBI.state is not available.");
-            return;
-        }
-
-        if (!this.selClass || !this.selTerm || !this.tableBox) {
-            console.warn("SBI_Students.onDataLoaded: Missing required DOM elements.");
-            return;
-        }
+        if (!st) return;
 
         this.populate();
         this.render();
@@ -57,20 +45,11 @@ window.SBI_Students = {
 
     populate() {
         const st = window.SBI?.state;
+        if (!st) return;
 
-        if (!st) {
-            console.warn("SBI_Students.populate: SBI.state is not available.");
-            return;
-        }
-        if (!this.selClass || !this.selTerm) {
-            console.warn("SBI_Students.populate: Missing select elements.");
-            return;
-        }
-
-        // --- classes ---
         this.selClass.innerHTML = "";
         (st.classes || [])
-            .slice() // non-mutating sort
+            .slice()
             .sort((a, b) => String(a.class_id).localeCompare(String(b.class_id), "ru"))
             .forEach(c => {
                 const o = document.createElement("option");
@@ -79,7 +58,6 @@ window.SBI_Students = {
                 this.selClass.appendChild(o);
             });
 
-        // --- terms ---
         this.selTerm.innerHTML = "";
         (st.allTerms || []).forEach(t => {
             const o = document.createElement("option");
@@ -91,33 +69,20 @@ window.SBI_Students = {
 
     render() {
         const st = window.SBI?.state;
-
-        if (!st) {
-            console.warn("SBI_Students.render: SBI.state is not available.");
-            return;
-        }
-        if (!this.selClass || !this.selTerm || !this.tableBox) {
-            console.warn("SBI_Students.render: Missing required DOM elements.");
-            return;
-        }
+        if (!st) return;
 
         const classId = this.selClass.value;
         const termId  = this.selTerm.value;
 
         if (!classId || !termId) {
-            this.tableBox.innerHTML = "<p>Пожалуйста, выберите класс и четверть.</p>";
+            this.tableBox.innerHTML = "<p>Выберите класс и четверть.</p>";
             return;
         }
 
         const students = (st.students || []).filter(s => s.class_id == classId);
         const subjects = (st.subjects || [])
-            .slice() // non-mutating sort
+            .slice()
             .sort((a, b) => String(a.subject_name).localeCompare(String(b.subject_name), "ru"));
-
-        if (!students.length || !subjects.length) {
-            this.tableBox.innerHTML = "<p>Нет данных для отображения.</p>";
-            return;
-        }
 
         let html = `<table class="data-table"><thead><tr>
             <th>Ученик</th>
@@ -144,14 +109,13 @@ window.SBI_Students = {
             subjects.forEach(sub => {
                 const row = rows.find(r => r.subject_id == sub.subject_id);
 
-                if (row && row.final_5scale != null && row.final_5scale !== "") {
+                if (row && row.final_5scale != null) {
                     const grade = Number(row.final_5scale);
                     if (!Number.isNaN(grade)) {
                         html += `<td>${grade}</td>`;
                         sum += grade;
                         count++;
                     } else {
-                        console.warn("Non-numeric final_5scale value:", row);
                         html += `<td>-</td>`;
                     }
                 } else {
@@ -163,13 +127,10 @@ window.SBI_Students = {
         });
 
         html += "</tbody></table>";
-
         this.tableBox.innerHTML = html;
     }
 };
 
 document.addEventListener("DOMContentLoaded", () => {
-    if (window.SBI_Students) {
-        window.SBI_Students.init();
-    }
+    if (window.SBI_Students) window.SBI_Students.init();
 });

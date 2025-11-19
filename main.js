@@ -1,4 +1,6 @@
-// main.js — FULL FILE INCLUDING THE REQUIRED PATCH
+// ===============================
+//  main.js (FULL + STUDENTS HOOK)
+// ===============================
 
 console.log("main.js loaded");
 
@@ -14,19 +16,17 @@ SBI.state = {
     terms: [],
     attendanceRows: [],
     weights: {},
-    gradingScale: []
+    gradingScale: [],
 };
 
-function parsePercent(val) {
-    if (val == null) return null;
-    if (typeof val === "number") return val;
-    let s = String(val).replace(",", ".").replace("%", "").trim();
-    const num = parseFloat(s);
-    return isNaN(num) ? null : num;
+function parsePercent(v) {
+    if (v == null) return null;
+    if (typeof v === "number") return v;
+    return parseFloat(String(v).replace(",", ".").replace("%", ""));
 }
 
 function convertTo5Scale(score, rules) {
-    if (!rules || rules.length === 0) {
+    if (!rules.length) {
         if (score >= 85) return 5;
         if (score >= 70) return 4;
         if (score >= 55) return 3;
@@ -39,136 +39,121 @@ function convertTo5Scale(score, rules) {
 }
 
 SBI.loadData = async function(files) {
-    SBI.state.allRows = [];
-    SBI.state.students = [];
-    SBI.state.teachers = [];
-    SBI.state.classes = [];
-    SBI.state.subjects = [];
-    SBI.state.terms = [];
-    SBI.state.assignments = [];
-    SBI.state.teacherQuals = [];
-    SBI.state.attendanceRows = [];
-    SBI.state.weights = {};
-    SBI.state.gradingScale = [];
-
     const rawGrades = [];
     const rawWeights = [];
     const rawScale = [];
 
     for (const file of files) {
-        const buffer = await file.arrayBuffer();
-        const workbook = XLSX.read(buffer);
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf);
 
-        function getData(keyword) {
-            const low = keyword.toLowerCase();
-            let sheetName = workbook.SheetNames.find(n => n.toLowerCase().includes(low));
-            if (!sheetName) {
-                if (file.name.toLowerCase().includes(low)) {
-                    sheetName = workbook.SheetNames[0];
-                }
-            }
+        function load(sheetKey) {
+            const sheetName = wb.SheetNames.find(name => name.toLowerCase().includes(sheetKey));
             if (!sheetName) return [];
-            return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+            return XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
         }
 
-        SBI.state.students.push(...getData("УЧАЩ"));
-        SBI.state.teachers.push(...getData("УЧИТ"));
-        SBI.state.classes.push(...getData("КЛАСС"));
-        SBI.state.subjects.push(...getData("ПРЕД"));
-        SBI.state.terms.push(...getData("ЧЕТВ"));
-        SBI.state.assignments.push(...getData("НАЗН"));
-        SBI.state.teacherQuals.push(...getData("QUAL"));
-        SBI.state.attendanceRows.push(...getData("ПОСЕЩ"));
+        SBI.state.students.push(...load("учащ"));
+        SBI.state.teachers.push(...load("учител"));
+        SBI.state.classes.push(...load("класс"));
+        SBI.state.subjects.push(...load("предмет"));
+        SBI.state.terms.push(...load("четвер"));
+        SBI.state.teacherQuals.push(...load("qual"));
+        SBI.state.assignments.push(...load("назнач"));
+        SBI.state.attendanceRows.push(...load("посещ"));
 
-        rawGrades.push(...getData("ОЦЕН"));
-        rawWeights.push(...getData("ВЕС"));
-        rawScale.push(...getData("ШКАЛ"));
+        rawGrades.push(...load("оцен"));
+        rawWeights.push(...load("вес"));
+        rawScale.push(...load("шкал"));
     }
 
     SBI.processAnalytics(rawGrades, rawWeights, rawScale);
 
-    // Trigger dashboards
+    // Trigger all dashboards
     if (window.SBI_Overview?.onDataLoaded) SBI_Overview.onDataLoaded();
-    if (window.SBI_Class?.onDataLoaded) SBI_Class.onDataLoaded();
+    if (window.SBI_Class?.onDataLoaded)    SBI_Class.onDataLoaded();
     if (window.SBI_Attendance?.onDataLoaded) SBI_Attendance.onDataLoaded();
 
-    // -----------------------------------------------
-    // NEW REQUIRED ADDITION (Students dashboard)
-    // -----------------------------------------------
+    // ⭐ NEW — Students dashboard
     if (window.SBI_Students?.onDataLoaded) SBI_Students.onDataLoaded();
 };
 
 SBI.processAnalytics = function(grades, weightRows, scaleRows) {
-
-    const scaleRules = scaleRows
-        .filter(r => r.grade_5pt != null)
-        .map(r => ({
-            grade: Number(r.grade_5pt),
-            min : Number(r.pct_min),
-            max : Number(r.pct_max)
-        }))
-        .sort((a, b) => b.min - a.min);
+    const scaleRules = scaleRows.map(r => ({
+        grade: Number(r.grade_5pt),
+        min: Number(r.pct_min),
+        max: Number(r.pct_max)
+    })).sort((a,b)=>b.min-a.min);
 
     SBI.state.gradingScale = scaleRules;
 
-    const weightMap = {};
+    const weights = {};
     weightRows.forEach(r => {
         const t = r.term_id;
         const s = r.subject_id;
-        const w = r.work_type;
-        if (!weightMap[t]) weightMap[t] = {};
-        if (!weightMap[t][s]) weightMap[t][s] = {};
-        weightMap[t][s][w] = Number(r.weight_pct) / 100;
+        if (!weights[t]) weights[t] = {};
+        if (!weights[t][s]) weights[t][s] = {};
+        weights[t][s][r.work_type] = Number(r.weight_pct)/100;
     });
 
-    function getWeight(term, sub, type) {
-        if (weightMap[term]?.[sub]?.[type]) return weightMap[term][sub][type];
-        if (weightMap[term]?.default?.[type]) return weightMap[term].default[type];
-        if (weightMap.default?.default?.[type]) return weightMap.default.default[type];
-
-        if (type === "СОЧ") return 0.5;
-        if (type === "СОР") return 0.25;
-        return 0.25;
+    function getW(term, subj, type) {
+        return weights[term]?.[subj]?.[type] ??
+               weights[term]?.default?.[type] ??
+               weights.default?.default?.[type] ??
+               (type === "СОЧ" ? 0.5 : type==="СОР" ? 0.25 : 0.25);
     }
 
     const groups = {};
-
     grades.forEach(r => {
-        const sid = r.student_id;
-        const sub = r.subject_id;
-        const term = r.term_id;
-
-        const key = `${sid}|${sub}|${term}`;
+        const key = `${r.student_id}|${r.subject_id}|${r.term_id}`;
         if (!groups[key]) {
             groups[key] = {
-                sid, sub, term,
+                student_id: r.student_id,
+                subject_id: r.subject_id,
+                term: r.term_id,
                 class_id: r.class_id,
                 scores: { "ФО": [], "СОР": [], "СОЧ": [] }
             };
         }
-
-        const type = (r.work_type || "ФО").toUpperCase().trim();
-        let pct = null;
-
-        if (r.percent != null) pct = parsePercent(r.percent);
-        else if (r.score != null && r.max_score != null) {
-            pct = (Number(r.score) / Number(r.max_score)) * 100;
-        }
-
-        if (pct != null) {
-            if (!groups[key].scores[type]) groups[key].scores[type] = [];
-            groups[key].scores[type].push(pct);
-        }
+        const type = (r.work_type || "ФО").toUpperCase();
+        let pct = parsePercent(r.percent);
+        if (!pct && r.score && r.max_score)
+            pct = 100 * Number(r.score) / Number(r.max_score);
+        if (pct != null) groups[key].scores[type].push(pct);
     });
 
     SBI.state.allRows = [];
 
     Object.values(groups).forEach(g => {
-        const avg = (arr) => {
-            arr = arr.filter(a => a != null);
-            if (arr.length === 0) return null;
-            return arr.reduce((a, b) => a + b, 0) / arr.length;
-        };
+        const avg = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : 0;
 
-        const aFO = avg(g.scores["ФО"]) ?? 0;
-        co
+        const total =
+            avg(g.scores["ФО"])  * getW(g.term, g.subject_id, "ФО") +
+            avg(g.scores["СОР"]) * getW(g.term, g.subject_id, "СОР") +
+            avg(g.scores["СОЧ"]) * getW(g.term, g.subject_id, "СОЧ");
+
+        SBI.state.allRows.push({
+            student_id: g.student_id,
+            subject_id: g.subject_id,
+            term: g.term,
+            class_id: g.class_id,
+            final_percent: total,
+            final_5scale: convertTo5Scale(total, scaleRules)
+        });
+    });
+
+    SBI.state.allTerms = [...new Set(SBI.state.allRows.map(r => r.term))];
+};
+
+// File upload
+document.addEventListener("DOMContentLoaded", () => {
+    const btn = document.getElementById("statusBar");
+    btn.addEventListener("click", () => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.multiple = true;
+        input.accept = ".xlsx,.xls";
+        input.onchange = () => SBI.loadData(input.files);
+        input.click();
+    });
+});

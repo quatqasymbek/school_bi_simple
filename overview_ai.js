@@ -1,170 +1,88 @@
-// overview_ai.js
-// Локальный ИИ для вкладки "Обзор". НЕ трогаем существующие диаграммы и KPI.
+// overview_ai.js - Local AI Integration for Overview
+console.log("OVERVIEW_AI.JS: Loaded");
 
-(function (global) {
-    const SBI = global.SBI || {};
-    const state = SBI.state || {};
-
-    let btn, output;
-
-    function valueTo5Scale(row) {
-        const toNumber = SBI.toNumber || (x => {
-            const n = Number(String(x).replace(",", "."));
-            return isNaN(n) ? null : n;
-        });
-
-        const s5 = toNumber(row.final_5scale);
-        if (s5 != null && s5 > 0) return s5;
-
-        const p = toNumber(row.final_percent);
-        if (p != null && p > 0) return p / 20; // грубое приведение к 5-балльной
-        return null;
-    }
-
-    function buildOverviewInsight(rows) {
-        const groupBy = SBI.groupBy || function (arr, keyFn) {
-            const res = {};
-            if (!Array.isArray(arr)) return res;
-            arr.forEach(item => {
-                const k = keyFn(item);
-                (res[k] = res[k] || []).push(item);
-            });
-            return res;
-        };
-        const mean = SBI.mean || function (arr) {
-            const nums = arr.filter(v => typeof v === "number" && !isNaN(v));
-            if (!nums.length) return null;
-            return nums.reduce((a, b) => a + b, 0) / nums.length;
-        };
-
-        const totalRecords = rows.length;
-        const allVals = rows.map(valueTo5Scale).filter(v => v != null);
-        const overallAverage = allVals.length ? mean(allVals) : null;
-
-        // по четвертям
-        const byTerm = {};
-        const groupedT = groupBy(rows, r => r.term || "");
-        Object.keys(groupedT).forEach(term => {
-            const group = groupedT[term];
-            const vals = group.map(valueTo5Scale).filter(v => v != null);
-            byTerm[term] = {
-                count: group.length,
-                average: vals.length ? mean(vals) : null,
-                min: vals.length ? Math.min.apply(null, vals) : null,
-                max: vals.length ? Math.max.apply(null, vals) : null
-            };
-        });
-
-        // по классам
-        const byClass = {};
-        const groupedC = groupBy(rows, r => String(r.class || r.class_name || "").trim());
-        Object.keys(groupedC).forEach(cls => {
-            if (!cls) return;
-            const group = groupedC[cls];
-            const vals = group.map(valueTo5Scale).filter(v => v != null);
-            byClass[cls] = {
-                count: group.length,
-                average: vals.length ? mean(vals) : null
-            };
-        });
-
-        return {
-            dashboard: "overview",
-            totalRecords,
-            overallAverage,
-            byTerm,
-            byClass
-        };
-    }
-
-    function setAILoading(isLoading, msg) {
-        if (btn) btn.disabled = isLoading;
-        if (output && msg) output.textContent = msg;
-    }
-
-    async function onClick() {
-        const rows = (state && state.allRows) || [];
-        if (!rows.length) {
-            if (output) {
-                output.textContent = "Данные ещё не загружены. Сначала загрузите Excel-файл.";
-            }
-            return;
-        }
-
-        if (!global.SBI_LLM || typeof global.SBI_LLM.interpret !== "function") {
-            if (output) {
-                output.textContent =
-                    "Локальный ИИ не инициализирован. " +
-                    "Убедитесь, что файл llm_cpu.js подключён в index.html перед overview_ai.js.";
-            }
-            return;
-        }
-
-        const insight = buildOverviewInsight(rows);
-
-        try {
-            setAILoading(true, "Подготовка AI-анализа…");
-
-            const text = await global.SBI_LLM.interpret({
-                context: "overview_dashboard",
-                data: insight,
-                temperature: 0.25,
-                maxTokens: 700,
-                onProgress: function (msg) {
-                    if (output) output.textContent = msg;
-                },
-                userInstruction:
-                    "Это общешкольный обзор (overview). JSON содержит:\n" +
-                    "- overallAverage: средний балл по школе,\n" +
-                    "- byTerm: статистика по четвертям (count, average, min, max),\n" +
-                    "- byClass: статистика по классам (count, average).\n\n" +
-                    "Сделай интерпретацию:\n" +
-                    "1) Общая картина успеваемости и её динамика по четвертям.\n" +
-                    "2) Классы и четверти с относительно высокими результатами.\n" +
-                    "3) Потенциальные зоны риска.\n" +
-                    "4) 3–5 конкретных рекомендаций администрации.\n" +
-                    "Не выдумывай новые числа, которых нет в JSON, но можно описывать тенденции."
-            });
-
-            if (output) {
-                output.textContent = text;
-            }
-        } catch (e) {
-            console.error("[overview_ai] error:", e);
-            if (output) {
-                output.textContent =
-                    "Ошибка при AI-аналізе. Попробуйте ещё раз или обновите страницу.";
-            }
-        } finally {
-            setAILoading(false);
-        }
-    }
+window.SBI_Overview_AI = (function() {
+    let contextData = null;
+    let currentTerm = "";
 
     function init() {
-        btn = document.getElementById("btn-overview-ai");
-        output = document.getElementById("overview-ai-output");
+        const btn = document.getElementById("btn-overview-ai");
+        if (btn) btn.addEventListener("click", runAnalysis);
+    }
 
-        if (!btn) {
-            console.log("[overview_ai] Кнопка btn-overview-ai не найдена — AI-блок не активирован.");
+    function setContext(rows, term) {
+        currentTerm = term;
+        
+        // Calculate simple stats for the prompt
+        const scores = rows.map(r => r.final_5scale);
+        const total = scores.length;
+        if (total === 0) return;
+
+        const avg = scores.reduce((a,b) => a+b, 0) / total;
+        const high = scores.filter(s => s >= 4).length;
+        const low = scores.filter(s => s <= 2).length;
+        const quality = (high / total) * 100;
+
+        contextData = {
+            term: term,
+            count: total,
+            avg: avg.toFixed(2),
+            quality: quality.toFixed(1),
+            lowCount: low
+        };
+    }
+
+    async function runAnalysis() {
+        const output = document.getElementById("overview-ai-output");
+        const btn = document.getElementById("btn-overview-ai");
+        
+        if (!window.SBI_LLM) {
+            output.textContent = "Ошибка: Модуль AI не загружен.";
+            return;
+        }
+        
+        if (!contextData) {
+            output.textContent = "Нет данных для анализа. Загрузите Excel файл.";
             return;
         }
 
-        btn.addEventListener("click", onClick);
+        // UI Loading State
+        output.textContent = "🤔 ИИ анализирует данные школы... (это может занять время на CPU)";
+        btn.disabled = true;
 
-        if (output) {
-            output.textContent = "Локальный ИИ пока не инициализирован. Нажмите кнопку, чтобы запустить анализ.";
-        }
+        const prompt = `
+        Ты - аналитик данных для директора школы.
+        Проанализируй следующие показатели за ${contextData.term}:
+        - Средний балл по школе: ${contextData.avg} (из 5)
+        - Качество знаний: ${contextData.quality}% (доля оценок 4 и 5)
+        - Количество двоечников/троек (низкие оценки): ${contextData.lowCount} записей.
 
-        if (global.SBI_LLM && typeof global.SBI_LLM.getModelId === "function") {
-            console.log("[overview_ai] LLM найден:", global.SBI_LLM.getModelId());
-        } else {
-            console.log("[overview_ai] LLM пока не найден. Он подключится после загрузки llm_cpu.js.");
+        Дай краткое резюме (3-4 предложения):
+        1. Оцени общий уровень (высокий/средний/низкий).
+        2. На что обратить внимание (проблемные зоны).
+        3. Позитивный тренд, если есть.
+        Пиши профессионально, на русском языке.
+        `;
+
+        try {
+            // Use the SBI_LLM interpret function or direct engine access
+            // Assuming standard interface from provided llm_cpu.js (interpret)
+            const engine = await SBI_LLM.ensureEngine((msg) => {
+                output.textContent = "Загрузка модели: " + msg;
+            });
+            
+            const response = await SBI_LLM.interpret("Анализ успеваемости", prompt);
+            output.innerHTML = `<strong>Анализ ИИ:</strong><br/>${response}`;
+            
+        } catch (e) {
+            console.error(e);
+            output.textContent = "Ошибка при генерации ответа: " + e.message;
+        } finally {
+            btn.disabled = false;
         }
     }
 
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", init);
-    } else {
-        init();
-    }
-})(window);
+    document.addEventListener("DOMContentLoaded", init);
+
+    return { setContext };
+})();

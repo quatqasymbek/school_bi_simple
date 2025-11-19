@@ -1,12 +1,12 @@
 // main.js - Data Loading and Processing Core
 console.log("MAIN.JS: Initializing...");
 
-// ==========================================\
-// ГЛОБАЛЬНЫЙ ОБЪЕКТ И СОСТОЯНИЕ
-// ==========================================\
 window.SBI = window.SBI || {};
 const SBI = window.SBI;
 
+// ==========================================\
+// 1. STATE MANAGEMENT
+// ==========================================\
 SBI.state = {
     allRows: [], // Итоговые оценки (по студенту/предмету/четверти)
     allTerms: [], // Список всех четвертей
@@ -23,8 +23,7 @@ SBI.state = {
 };
 
 // ==========================================\
-// 2. DATA PROCESSING HELPERS (Из utils.js)
-// NOTE: Предполагаем, что utils.js подключен и содержит mean, unique, groupBy.
+// 2. DATA PROCESSING HELPERS (Предполагается наличие utils.js)
 // ==========================================\
 
 function parsePercent(val) {
@@ -45,15 +44,19 @@ function convertTo5Scale(score, scaleRules) {
         if (score >= 70) return 4;
         if (score >= 55) return 3;
         if (score >= 0) return 2;
-        return null;
+        return 0; // Возвращаем 0, если нет оценки
     }
     // Используем загруженную шкалу
     for (let rule of scaleRules) {
-        if (score >= rule.pct_min && score <= rule.pct_max) {
+        // Убедимся, что rule.min/max — это числа
+        const min = Number(rule.min);
+        const max = Number(rule.max);
+
+        if (score >= min && score <= max) {
             return rule.grade_5pt;
         }
     }
-    return null;
+    return 0;
 }
 
 // ==========================================\
@@ -84,9 +87,18 @@ SBI.loadData = function(files) {
     function fileLoaded(fileName, data) {
         filesProcessed++;
         
-        // Преобразование имени файла в ключ состояния (убираем префикс и .csv)
-        let key = fileName.split(' - ')[1].replace('.csv', '').replace('example_excel.xlsx ', '').replace('«', '').replace('»', '').replace(/[\s\W]+/g, '_').toUpperCase();
+        let baseName = fileName;
+        // ИСПРАВЛЕНИЕ ОШИБКИ: Безопасное извлечение имени листа из имени файла
+        if (baseName.includes(' - ')) {
+            baseName = baseName.split(' - ')[1];
+        } else if (baseName.startsWith('example_excel.xlsx')) {
+             // Удаляем только префикс, если это единственное имя
+             baseName = baseName.replace('example_excel.xlsx', '').trim();
+        }
         
+        // Очистка и преобразование в ключ состояния
+        let key = baseName.replace('.csv', '').replace('«', '').replace('»', '').replace(/[\s\W]+/g, '_').toUpperCase();
+
         if (key.includes('УЧАЩИЕСЯ')) key = 'STUDENTS';
         else if (key.includes('УЧИТЕЛЯ')) key = 'TEACHERS';
         else if (key.includes('КЛАССЫ')) key = 'CLASSES';
@@ -151,8 +163,8 @@ SBI.processData = function(rawData) {
 
     // --- 2. Process Weights ---
     const rawWeights = rawData.WEIGHTS || [];
+    SBI.state.weights = {};
     rawWeights.forEach(row => {
-        // Предполагаем, что нам нужны только веса по типу работы (ФО, СОР, СОЧ)
         if (row.scope === 'overall' && row.work_type) {
             SBI.state.weights[row.work_type] = parsePercent(row.weight_pct) / 100;
         }
@@ -164,14 +176,12 @@ SBI.processData = function(rawData) {
     const finalRows = [];
 
     // --- 3. Group Raw Grades ---
-    // Группируем по: Ученик ID, Предмет ID, Четверть (для расчета итоговой)
+    // Группируем по: Ученик ID, Предмет ID, Четверть, Класс (для расчета итоговой)
     const groupedByFinalGradeKey = SBI.groupBy(grades, r => `${r.student_id}|${r.subject_id}|${r.term_id}|${r.class_id}`);
     
     // --- 4. Calculate Final Term Grades ---
     Object.keys(groupedByFinalGradeKey).forEach(key => {
         const group = groupedByFinalGradeKey[key];
-        // Берем данные из первой строки группы
-        const firstRow = group[0];
         const groupKeyParts = key.split('|');
         
         const calculationGroup = {
@@ -179,27 +189,21 @@ SBI.processData = function(rawData) {
             sub: groupKeyParts[1],
             term: groupKeyParts[2],
             class_id: groupKeyParts[3],
-            // Инициализируем сумму взвешенных процентов
             weightedSum: 0, 
             totalWeight: 0
         };
 
-        // Группируем оценки внутри четверти по типу работы (ФО, СОР, СОЧ)
         const gradesByWorkType = SBI.groupBy(group, r => r.work_type);
 
         Object.keys(gradesByWorkType).forEach(workType => {
             const workTypeGrades = gradesByWorkType[workType];
-            const weight = weights[workType] || 0; // Получаем вес для данного типа работы
+            const weight = weights[workType] || 0;
             
             if (weight > 0) {
-                // Берем все оценки (в процентах) для данного типа работы
                 const percents = workTypeGrades.map(r => parsePercent(r.percent)).filter(n => n != null);
                 
                 if (percents.length > 0) {
-                    // Рассчитываем средний процент для данного типа работы
                     const avgPercent = SBI.mean(percents); 
-                    
-                    // Добавляем взвешенный результат к общей сумме
                     calculationGroup.weightedSum += avgPercent * weight;
                     calculationGroup.totalWeight += weight;
                 }
@@ -208,14 +212,11 @@ SBI.processData = function(rawData) {
         
         let totalPct = null;
         if (calculationGroup.totalWeight > 0) {
-            // Итоговый процент = Взвешенная сумма / Общий вес (должен быть 1.0, но может отличаться)
             totalPct = calculationGroup.weightedSum / calculationGroup.totalWeight;
         }
 
-        // Переводим итоговый процент в 5-балльную шкалу
         const grade5 = convertTo5Scale(totalPct, scaleRules);
 
-        // Добавляем итоговую строку
         finalRows.push({
             student_id: calculationGroup.sid,
             subject_id: calculationGroup.sub,
@@ -248,8 +249,9 @@ SBI.processData = function(rawData) {
 // ==========================================\
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Настройка загрузчика файлов
+    // 1. Настройка загрузчика файлов (сохранено из предыдущей версии)
     const input = document.createElement('input');
+    // ... (остальной код input, btn и header) ...
     input.type = 'file';
     input.multiple = true;
     input.style.display = 'none';
@@ -278,7 +280,7 @@ document.addEventListener('DOMContentLoaded', () => {
         header.appendChild(btn);
     }
     
-    // 2. Настройка навигации
+    // 2. Настройка навигации (сохранено из предыдущей версии)
     const navButtons = document.querySelectorAll('.nav-button');
     const pages = document.querySelectorAll('.page-content');
     
@@ -302,8 +304,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Показать домашнюю страницу при загрузке (или 'overview-page-content' если он существует)
-    const defaultPage = document.getElementById('students-page-content') ? 'students-page-content' : 'overview-page-content';
+    // Определяем страницу по умолчанию
+    const urlParams = new URLSearchParams(window.location.search);
+    let defaultPage = urlParams.get('page') || 'overview-page-content';
+    if (!document.getElementById(defaultPage)) {
+         defaultPage = 'overview-page-content'; // Fallback
+    }
+
+    // Если новой страницы нет в DOM, то используем старую
+    if (!document.getElementById('students-page-content')) {
+        defaultPage = 'overview-page-content';
+    } else {
+        // Устанавливаем новую страницу как активную при первой загрузке
+        defaultPage = 'students-page-content';
+    }
+    
     if(document.getElementById(defaultPage)) {
         showPage(defaultPage);
     }

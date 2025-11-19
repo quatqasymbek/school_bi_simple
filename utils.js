@@ -19,3 +19,17 @@ SBI.groupBy = function(arr, keyFn) {
         return acc;
     }, {});
 };
+
+// ================================
+// Add missing helper function
+// ================================
+window.SBI = window.SBI || {};
+
+SBI.unique = function(arr) {
+    return [...new Set(arr)];
+};
+
+SBI.mean = function(arr) {
+    if (!arr.length) return 0;
+    return arr.reduce((a, b) => a + b, 0) / arr.length;
+};

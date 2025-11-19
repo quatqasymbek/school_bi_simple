@@ -43,7 +43,7 @@
                 <button class="nav-button" data-page="class-page-content">Класс</button>
                 <button class="nav-button" data-page="teacher-page-content">Учитель</button>
                 <button class="nav-button" data-page="attendance-page-content">Посещаемость</button>
-                <button class="nav-button active" data-page="students-page-content">Ученики</button> 
+                <button class="nav-button" data-page="students-page-content">Ученики</button> 
             </nav>
             </div>
     </header>
@@ -51,35 +51,120 @@
     <main>
         <div id="overview-page-content" class="page-content" style="display:none;">
             <h2>Общий обзор школы</h2>
+            <div class="sbi-filters" style="margin-bottom: 20px;">
+                <label for="overviewTermSelect">Четверть:</label>
+                <select id="overviewTermSelect"></select>
+                <label for="overviewMetricSelect">Метрика:</label>
+                <select id="overviewMetricSelect">
+                    <option value="knowledge_quality">Качество знаний</option>
+                    <option value="avg_mark">Средний балл</option>
+                </select>
+                <button id="aiInsightBtn" style="padding: 8px; margin-left: 10px;">🧠 Запрос к ИИ</button>
+            </div>
+
             <div id="overview-summary">Данные ещё не загружены.</div>
+            <div id="ai-output" style="margin-top: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9;"></div>
+
+            <div id="overview-kpi" style="display: flex; gap: 20px; margin-top: 20px; text-align: center;">
+                <div style="flex: 1; padding: 15px; border: 1px solid #ccc; border-radius: 4px;">
+                    <h3>Всего учеников</h3>
+                    <p id="kpiStudents" style="font-size: 2em; font-weight: bold; color: #34495e;">-</p>
+                </div>
+                <div style="flex: 1; padding: 15px; border: 1px solid #ccc; border-radius: 4px;">
+                    <h3>Всего учителей</h3>
+                    <p id="kpiTeachers" style="font-size: 2em; font-weight: bold; color: #34495e;">-</p>
+                </div>
+            </div>
+
+            <div style="margin-top: 30px;">
+                <h3>Сводная таблица по классам</h3>
+                <div id="overviewGradeTable"></div>
+            </div>
+            
+            <div id="overviewDonut" style="height: 400px; margin-top: 30px;"></div>
         </div>
 
         <div id="class-page-content" class="page-content" style="display:none;">
             <h2>Анализ успеваемости по классам</h2>
+            
+            <h3>Сводка успеваемости</h3>
+            <div class="sbi-filters" style="margin-bottom: 20px;">
+                <label for="clsTableTermSelect">Четверть:</label>
+                <select id="clsTableTermSelect"></select>
+                <label for="clsTableMetricSelect">Метрика:</label>
+                <select id="clsTableMetricSelect">
+                    <option value="knowledge_quality">Качество знаний (%)</option>
+                    <option value="avg_mark">Средний балл</option>
+                </select>
+            </div>
+            <div style="overflow-x:auto;">
+                 <table class="sbi-table" style="min-width: 700px;">
+                    <thead id="class-summary-header"></thead>
+                    <tbody id="class-summary-body"></tbody> 
+                 </table>
+            </div>
+
+            <h3 style="margin-top: 30px;">Распределение успеваемости по классу</h3>
+            <div class="sbi-filters" style="margin-bottom: 20px;">
+                <label for="clsDonutTermSelect">Четверть:</label>
+                <select id="clsDonutTermSelect"></select>
+                <label for="clsDonutClassSelect">Класс:</label>
+                <select id="clsDonutClassSelect"></select>
+            </div>
             <div id="chart-class-donut" style="height: 400px;"></div>
         </div>
         
         <div id="teacher-page-content" class="page-content" style="display:none;">
              <h2>Анализ успеваемости по учителям</h2>
-             <div id="chart-teacher-breakdown" style="height: 600px;"></div>
+             <div class="sbi-filters" style="margin-bottom: 20px; display: flex; gap: 20px; align-items: center;">
+                <div>
+                    <label for="teacherTeacherSelect">Учитель:</label>
+                    <select id="teacherTeacherSelect"></select>
+                </div>
+                <div>
+                    <label for="teacherTermSelect">Четверть:</label>
+                    <select id="teacherTermSelect"></select>
+                </div>
+            </div>
+             <div id="chart-teacher-summary" style="margin-top: 20px;"></div>
+             <div id="chart-teacher-breakdown" style="height: 600px; margin-top: 30px;"></div>
         </div>
 
         <div id="attendance-page-content" class="page-content" style="display:none;">
              <h2>Посещаемость</h2>
+             
+             <h3 style="margin-top:0;">Сводка по классам</h3>
+             <div class="sbi-filters" style="margin-bottom: 20px;">
+                <label for="attTermSummary">Четверть:</label>
+                <select id="attTermSummary"></select>
+             </div>
              <div id="attSummaryTableWrapper"></div>
+
+             <h3 style="margin-top:30px;">Детализация по ученикам</h3>
+             <div class="sbi-filters" style="margin-bottom: 20px; display: flex; gap: 20px; align-items: center;">
+                <div>
+                    <label for="attTermDetail">Четверть:</label>
+                    <select id="attTermDetail"></select>
+                </div>
+                <div>
+                    <label for="attClassDetail">Класс:</label>
+                    <select id="attClassDetail"></select>
+                </div>
+             </div>
+             <div id="attDetailTableWrapper"></div>
         </div>
 
-        <div id="students-page-content" class="page-content">
+        <div id="students-page-content" class="page-content" style="display:none;">
             <h2>Ученики: Итоговая успеваемость</h2>
             
             <div class="sbi-filters" style="margin-bottom: 20px; display: flex; gap: 20px; align-items: center;">
                 <div>
                     <label for="studentsClassSelect">Класс (например, 6Ә):</label>
-                    <select id="studentsClassSelect"></select>
+                    <select id="studentsClassSelect" style="padding: 8px; border-radius: 4px; border: 1px solid #ccc;"></select>
                 </div>
                 <div>
                     <label for="studentsTermSelect">Четверть:</label>
-                    <select id="studentsTermSelect"></select>
+                    <select id="studentsTermSelect" style="padding: 8px; border-radius: 4px; border: 1px solid #ccc;"></select>
                 </div>
             </div>
             

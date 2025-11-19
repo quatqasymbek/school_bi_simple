@@ -39,16 +39,15 @@ function parsePercent(val) {
 function convertTo5Scale(score, scaleRules) {
     if (score == null) return null;
     if (!scaleRules || scaleRules.length === 0) {
-        // Дефолтная шкала (если файл ШКАЛА_5Б.csv не загружен или пуст)
+        // Дефолтная шкала
         if (score >= 85) return 5;
         if (score >= 70) return 4;
         if (score >= 55) return 3;
         if (score >= 0) return 2;
-        return 0; // Возвращаем 0, если нет оценки
+        return 0; 
     }
     // Используем загруженную шкалу
     for (let rule of scaleRules) {
-        // Убедимся, что rule.min/max — это числа
         const min = Number(rule.min);
         const max = Number(rule.max);
 
@@ -88,15 +87,17 @@ SBI.loadData = function(files) {
         filesProcessed++;
         
         let baseName = fileName;
-        // ИСПРАВЛЕНИЕ ОШИБКИ: Безопасное извлечение имени листа из имени файла
+        
+        // **********************************************
+        // * ИСПРАВЛЕНИЕ ОШИБКИ: Безопасное извлечение имени листа *
+        // **********************************************
         if (baseName.includes(' - ')) {
             baseName = baseName.split(' - ')[1];
         } else if (baseName.startsWith('example_excel.xlsx')) {
-             // Удаляем только префикс, если это единственное имя
              baseName = baseName.replace('example_excel.xlsx', '').trim();
         }
         
-        // Очистка и преобразование в ключ состояния
+        // Очистка и преобразование в ключ состояния (используем baseName, а не fileName)
         let key = baseName.replace('.csv', '').replace('«', '').replace('»', '').replace(/[\s\W]+/g, '_').toUpperCase();
 
         if (key.includes('УЧАЩИЕСЯ')) key = 'STUDENTS';
@@ -157,7 +158,7 @@ SBI.processData = function(rawData) {
     SBI.state.assignments = rawData.ASSIGNMENTS || [];
     SBI.state.gradingScale = (rawData.GRADING_SCALE || []).map(r => ({
         grade_5pt: r.grade_5pt,
-        min: r.pct_min, // Используем более понятные имена
+        min: r.pct_min, 
         max: r.pct_max
     }));
 
@@ -176,7 +177,6 @@ SBI.processData = function(rawData) {
     const finalRows = [];
 
     // --- 3. Group Raw Grades ---
-    // Группируем по: Ученик ID, Предмет ID, Четверть, Класс (для расчета итоговой)
     const groupedByFinalGradeKey = SBI.groupBy(grades, r => `${r.student_id}|${r.subject_id}|${r.term_id}|${r.class_id}`);
     
     // --- 4. Calculate Final Term Grades ---
@@ -228,19 +228,17 @@ SBI.processData = function(rawData) {
     });
 
     SBI.state.allRows = finalRows;
-    // Сбор уникальных четвертей для фильтров
     SBI.state.allTerms = SBI.unique(finalRows.map(r => r.term));
     
     console.log(`Data Processed: ${finalRows.length} rows, ${SBI.state.classes.length} classes, ${SBI.state.teachers.length} teachers.`);
 
 
     // --- 5. NOTIFY MODULES ---
-    // Вызов onDataLoaded() для всех дашбордов, включая новый "Ученики"
     if (window.SBI_Overview && SBI_Overview.onDataLoaded) SBI_Overview.onDataLoaded();
     if (window.SBI_Class && SBI_Class.onDataLoaded) SBI_Class.onDataLoaded();
     if (window.SBI_Teacher && SBI_Teacher.onDataLoaded) SBI_Teacher.onDataLoaded();
     if (window.SBI_Attendance && SBI_Attendance.onDataLoaded) SBI_Attendance.onDataLoaded();
-    // НОВЫЙ МОДУЛЬ:
+    // ВЫЗОВ НОВОГО МОДУЛЯ:
     if (window.SBI_Students && SBI_Students.onDataLoaded) SBI_Students.onDataLoaded(); 
 };
 
@@ -249,9 +247,8 @@ SBI.processData = function(rawData) {
 // ==========================================\
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Настройка загрузчика файлов (сохранено из предыдущей версии)
+    // 1. Настройка загрузчика файлов
     const input = document.createElement('input');
-    // ... (остальной код input, btn и header) ...
     input.type = 'file';
     input.multiple = true;
     input.style.display = 'none';
@@ -280,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
         header.appendChild(btn);
     }
     
-    // 2. Настройка навигации (сохранено из предыдущей версии)
+    // 2. Настройка навигации
     const navButtons = document.querySelectorAll('.nav-button');
     const pages = document.querySelectorAll('.page-content');
     
@@ -304,21 +301,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Определяем страницу по умолчанию
-    const urlParams = new URLSearchParams(window.location.search);
-    let defaultPage = urlParams.get('page') || 'overview-page-content';
-    if (!document.getElementById(defaultPage)) {
-         defaultPage = 'overview-page-content'; // Fallback
-    }
-
-    // Если новой страницы нет в DOM, то используем старую
-    if (!document.getElementById('students-page-content')) {
-        defaultPage = 'overview-page-content';
-    } else {
-        // Устанавливаем новую страницу как активную при первой загрузке
+    // Установка страницы по умолчанию
+    let defaultPage = 'overview-page-content';
+    if (document.getElementById('students-page-content')) {
+        // Устанавливаем новую страницу как активную при первой загрузке, если она существует
         defaultPage = 'students-page-content';
     }
-    
+
     if(document.getElementById(defaultPage)) {
         showPage(defaultPage);
     }

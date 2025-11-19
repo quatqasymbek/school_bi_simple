@@ -8,10 +8,12 @@ const SBI = window.SBI;
 // 1. STATE MANAGEMENT
 // ==========================================
 SBI.state = {
-    allRows: [], // The processed analytic rows (Student x Subject x Term)
+    allRows: [], // The processed analytic rows
     students: [],
-    teachers: [],
-    classes: [], // THIS MUST BE POPULATED for Classes tab to work
+    teachers: [], // List of teachers
+    teacherQuals: [], // Qualification definitions
+    assignments: [], // Link between Class+Subject+Term -> Teacher
+    classes: [],
     subjects: [],
     terms: [],
     attendanceRows: [],
@@ -57,10 +59,12 @@ SBI.loadData = async function(files) {
     SBI.setStatus("Чтение файлов...");
     const state = SBI.state;
     
-    // Reset state to avoid duplicates on re-upload
+    // Reset state
     state.allRows = [];
     state.students = [];
     state.teachers = [];
+    state.teacherQuals = [];
+    state.assignments = [];
     state.classes = [];
     state.subjects = [];
     state.terms = [];
@@ -84,10 +88,14 @@ SBI.loadData = async function(files) {
             // Accumulate Data
             state.students = state.students.concat(getSheet("УЧАЩИЕСЯ"));
             state.teachers = state.teachers.concat(getSheet("УЧИТЕЛЯ"));
-            state.classes = state.classes.concat(getSheet("КЛАССЫ")); // Critical for Classes Page
+            state.classes = state.classes.concat(getSheet("КЛАССЫ"));
             state.subjects = state.subjects.concat(getSheet("ПРЕДМЕТЫ"));
             state.terms = state.terms.concat(getSheet("ЧЕТВЕРТИ"));
             
+            // New Sheets for Teachers Page
+            state.assignments = state.assignments.concat(getSheet("НАЗНАЧЕНИЯ")); // Matches "НАЗНАЧЕНИЯ_ПРЕПОД"
+            state.teacherQuals = state.teacherQuals.concat(getSheet("QUALS")); // Matches "TEACHER_QUALS"
+
             rawGrades = rawGrades.concat(getSheet("ОЦЕНКИ"));
             rawWeights = rawWeights.concat(getSheet("ВЕСА")); 
             rawScale = rawScale.concat(getSheet("ШКАЛА")); 
@@ -108,6 +116,7 @@ SBI.loadData = async function(files) {
     if (window.SBI_Class && window.SBI_Class.onDataLoaded) window.SBI_Class.onDataLoaded();
     if (window.SBI_Attendance && window.SBI_Attendance.onDataLoaded) window.SBI_Attendance.onDataLoaded();
     if (window.SBI_Subject && window.SBI_Subject.onDataLoaded) window.SBI_Subject.onDataLoaded();
+    if (window.SBI_Teacher && window.SBI_Teacher.onDataLoaded) window.SBI_Teacher.onDataLoaded();
 };
 
 function processAnalytics(grades, weightsRaw, scaleRaw) {
@@ -218,7 +227,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.appendChild(input);
 
     const header = document.querySelector('header div:last-child');
-    // Remove old button if exists to prevent duplicates
     const oldBtn = document.getElementById('uploadBtn');
     if(oldBtn) oldBtn.remove();
 

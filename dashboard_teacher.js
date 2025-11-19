@@ -1,404 +1,312 @@
-// dashboard_teacher.js - Teachers Analytics
-console.log("DASHBOARD_TEACHER.JS: Loaded and fixed");
+// dashboard_teacher.js
+console.log("dashboard_teacher.js загружен");
 
-window.SBI_Teacher = (function() {
-    const SBI = window.SBI;
+window.SBI_Teacher = (function () {
+    const state = SBI.state;
     const log = SBI.log || console.log;
 
-    // DOM Elements for section 1: Квалификация педагогического состава
-    let qualDonut, qualTermSelect;
-    
-    // DOM Elements for section 2: Мониторинг успеваемости по учителям
-    let teacherTableBody, teacherMetricSelect; // Assumed HTML has an element with ID 'teachTableBody' and 'teachTableMetricSelect'
-    
-    // DOM Elements for section 3: Персональный анализ результатов
-    let perfPie, perfTeacherSelect, perfTermSelect; // Assumed HTML has specific selectors for this section
-    
-    // Cached internal data structures
-    let teacherQualMap = {}; // Map of qual_code to qual_name
-    let teacherAssignmentMap = {}; // Map of teacher_id -> { term_id -> [rows of grades] }
+    let teacherSelect, termSelect;
+    let summaryContainer, breakdownContainer;
 
-    // ======================================================
-    // 0. INIT & HELPERS
-    // ======================================================
-
-    function buildTeacherName(teacher) {
-        if (!teacher) return "";
+    /**
+     * Формирует полное имя учителя из строки данных.
+     * @param {object} row Строка из state.teachers
+     * @returns {string} Полное имя
+     */
+    function buildTeacherName(row) {
+        if (!row) return "Неизвестный учитель";
         const parts = [
-            teacher.last_name   != null ? String(teacher.last_name).trim()   : "",
-            teacher.first_name  != null ? String(teacher.first_name).trim()  : ""
+            row.last_name   != null ? String(row.last_name).trim()   : "",
+            row.first_name  != null ? String(row.first_name).trim()  : "",
+            row.middle_name != null ? String(row.middle_name).trim() : ""
         ].filter(Boolean);
-        return parts.join(" ");
+        return parts.join(" ") || String(row.teacher_id || "Неизвестный");
     }
-    
+
     /**
-     * Helper: Find Teacher ID for a specific Class+Subject+Term
-     * This is vital for linking grades (allRows) back to teachers.
+     * Инициализация элементов DOM.
      */
-    function getTeacherForAssignment(classId, subjectId, termId) {
-        const asg = SBI.state.assignments || []; // 'assignments' sheet data (НАЗНАЧЕНИЯ_ПРЕПОД)
-        
-        // Match all three fields precisely
-        const found = asg.find(a => 
-            String(a.class_id).trim() === String(classId).trim() && 
-            String(a.subject_id).trim() === String(subjectId).trim() && 
-            String(a.term_id).trim() === String(termId).trim()
-        );
-        return found ? found.teacher_id : null;
-    }
-    
     function init() {
-        // 1. Qual Donut
-        qualDonut = document.getElementById("chart-teacher-qual");
-        qualTermSelect = document.getElementById("teachQualTermSelect");
+        teacherSelect = document.getElementById("teacherTeacherSelect");
+        termSelect    = document.getElementById("teacherTermSelect");
+        summaryContainer = document.getElementById("chart-teacher-summary");
+        breakdownContainer = document.getElementById("chart-teacher-breakdown");
 
-        // 2. Teacher Table
-        teacherTableBody = document.getElementById("teachTableBody");
-        teacherMetricSelect = document.getElementById("teachTableMetricSelect");
+        if (teacherSelect) teacherSelect.onchange = update;
+        if (termSelect)    termSelect.onchange    = update;
 
-        // 3. Performance Pie
-        perfPie = document.getElementById("chart-teacher-perf");
-        perfTeacherSelect = document.getElementById("teachPerfTeacherSelect");
-        perfTermSelect = document.getElementById("teachPerfTermSelect");
-
-        // Set up Listeners
-        if(qualTermSelect) qualTermSelect.onchange = renderQualDonut;
-        
-        // FIX 1: Set default metric to 'quality' and attach listener
-        if (teacherMetricSelect) {
-            if (teacherMetricSelect.value !== 'average') { // Only set if not already 'average'
-                teacherMetricSelect.value = 'quality'; // Default to Качество знаний
-            }
-            teacherMetricSelect.onchange = renderTeacherTable;
+        // Первичное заполнение заглушками
+        if (summaryContainer) {
+            summaryContainer.innerHTML = '<h3>Сводка по успеваемости</h3><p style="color:#666;">Данные загружаются...</p>';
         }
-        
-        if(perfTeacherSelect) perfTeacherSelect.onchange = renderPerformancePie;
-        if(perfTermSelect) perfTermSelect.onchange = renderPerformancePie;
+        if (breakdownContainer) {
+            breakdownContainer.innerHTML = '<h3>Средний балл по предметам / классам</h3><p style="color:#666;">Данные загружаются...</p>';
+        }
+
+        log("[TeacherDashboard] init complete");
     }
-    
+
     /**
-     * Builds internal data maps after main data load.
+     * Заполняет фильтры (Учитель, Четверть).
      */
-    function buildDataMaps() {
-        // 1. Teacher Qual Map
-        (SBI.state.teacherQuals || []).forEach(q => {
-            teacherQualMap[q.qual_code] = q.qual_name;
-        });
+    function populateFilters() {
+        const rows = state.allRows || [];
+        const teachers = state.teachers || [];
+        const terms = state.allTerms || [];
 
-        // 2. Teacher Assignment Map (link allRows to teacher via assignments)
-        teacherAssignmentMap = {}; 
-        const rows = SBI.state.allRows || [];
+        if (!rows.length) return;
 
-        rows.forEach(r => {
-            // Find the teacher ID for this specific grade row (class + subject + term)
-            const tid = getTeacherForAssignment(r.class_id, r.subject_id, r.term);
-            if (!tid) return;
-            
-            if (!teacherAssignmentMap[tid]) teacherAssignmentMap[tid] = {};
-            if (!teacherAssignmentMap[tid][r.term]) teacherAssignmentMap[tid][r.term] = [];
-            
-            teacherAssignmentMap[tid][r.term].push(r);
-        });
-        log("SBI_Teacher: Built teacherAssignmentMap with entries:", Object.keys(teacherAssignmentMap).length);
-    }
-    
-    function fillSelect(select, values, defaultValue = null) {
-        if (!select) return;
-        const oldVal = select.value;
-        select.innerHTML = "";
-        
-        if (!values || values.length === 0) {
-             const opt = document.createElement("option");
-             opt.textContent = "Нет данных";
-             opt.value = "NODATA";
-             select.appendChild(opt);
-             return;
-        }
-        
-        values.forEach(v => {
-            const opt = document.createElement("option");
-            if (typeof v === 'object' && v.teacher_id) {
-                const name = buildTeacherName(v);
-                opt.value = v.teacher_id;
-                opt.textContent = name || v.teacher_id;
-            } else { 
-                opt.value = v;
-                opt.textContent = v;
-            }
-            select.appendChild(opt);
-        });
-        
-        // Restore selection if possible, otherwise use default
-        if (oldVal && select.querySelector(`option[value="${oldVal}"]`)) {
-            select.value = oldVal;
-        } else if (defaultValue !== null && select.querySelector(`option[value="${defaultValue}"]`)) {
-            select.value = defaultValue;
-        } else if (values.length > 0) {
-            select.value = values[0].teacher_id ? values[0].teacher_id : values[0];
-        }
-    }
-
-    function populateSelectors() {
-        const terms = SBI.state.allTerms ? [...SBI.state.allTerms].sort() : [];
-        const teachers = SBI.state.teachers || [];
-        
-        // Sort teachers by name
-        teachers.sort((a,b) => buildTeacherName(a).localeCompare(buildTeacherName(b)));
-
-        // Use the last term as default
-        const defaultTerm = terms.length > 0 ? terms[terms.length - 1] : null;
-
-        // 1. Qual Term
-        fillSelect(qualTermSelect, terms, defaultTerm);
-        
-        // 2. Perf Term
-        fillSelect(perfTermSelect, terms, defaultTerm);
-
-        // 3. Perf Teacher (use object list here)
-        fillSelect(perfTeacherSelect, teachers);
-    }
-
-    // ======================================================
-    // 1. КВАЛИФИКАЦИЯ ПЕДАГОГИЧЕСКОГО СОСТАВА (QUALIFICATION DONUT)
-    // ======================================================
-    function renderQualDonut() {
-        if(!qualDonut || !qualTermSelect) return;
-        const term = qualTermSelect.value;
-        const teachers = SBI.state.teachers || [];
-        const assignments = SBI.state.assignments || [];
-
-        // Determine active teachers in this term
-        let activeTids = new Set();
-        if(assignments.length > 0 && term !== 'NODATA') {
-            assignments.filter(a => String(a.term_id).trim() === String(term).trim()).forEach(a => activeTids.add(a.teacher_id));
-        } else {
-            // Fallback: show all if no assignment data loaded or term selector is empty
-            teachers.forEach(t => activeTids.add(t.teacher_id));
-        }
-
-        const activeTeachers = teachers.filter(t => activeTids.has(t.teacher_id));
-        
-        if(activeTeachers.length === 0) {
-            Plotly.purge(qualDonut);
-            qualDonut.innerHTML = "<div style='padding:20px;text-align:center;color:#999'>Нет данных об учителях для выбранной четверти.</div>";
-            return;
-        }
-
-        const counts = {};
-        activeTeachers.forEach(t => {
-            const code = t.qualification_code || "Unknown";
-            const name = teacherQualMap[code] || code;
-            counts[name] = (counts[name] || 0) + 1;
-        });
-
-        const data = [{
-            values: Object.values(counts),
-            labels: Object.keys(counts),
-            type: 'pie',
-            hole: 0.4,
-            textinfo: 'label+percent',
-            marker: { colors: ['#3B82F6', '#10B981', '#FBBF24', '#EF4444', '#A855F7', '#06B6D4'] }
-        }];
-
-        const layout = {
-            title: `Распределение квалификаций (${term || 'Все'})`,
-            height: 350,
-            margin: { t: 30, b: 10, l: 10, r: 10 },
-            showlegend: true
-        };
-
-        Plotly.newPlot(qualDonut, data, layout, {displayModeBar:false, responsive: true});
-    }
-
-
-    // ======================================================
-    // 2. МОНИТОРИНГ УСПЕВАЕМОСТИ ПО УЧИТЕЛЯМ (MATRIX TABLE)
-    // ======================================================
-
-    function calculateMetric(rows, metric) {
-        // Only consider the 5-scale final grades (must be >= 2)
-        const grades = rows.map(r => SBI.toNumber(r.final_5scale)).filter(g => g != null && g >= 2); 
-        
-        if(grades.length === 0) return "-";
-        
-        if (metric === 'average') {
-            return SBI.mean(grades).toFixed(2);
-        } else { // 'quality' (Качество знаний: доля 4 и 5)
-            const good = grades.filter(g => g >= 4).length;
-            return ((good / grades.length) * 100).toFixed(0) + "%";
-        }
-    }
-
-    function colorCell(td, valStr, metric) {
-        const val = parseFloat(valStr.replace('%', ''));
-        if(isNaN(val)) return;
-        
-        if(metric === 'quality') {
-            if(val >= 70) td.className = 'grade-good';
-            else if(val <= 40) td.className = 'grade-bad';
-            else td.className = 'grade-neutral';
-        } else { // 'average'
-            if(val >= 4.5) td.className = 'grade-good';
-            else if(val < 3.0) td.className = 'grade-bad';
-            else td.className = 'grade-neutral';
-        }
-    }
-
-    function renderTeacherTable() {
-        if(!teacherTableBody) return;
-        
-        const metric = teacherMetricSelect ? teacherMetricSelect.value : "quality"; 
-        const teachers = SBI.state.teachers || [];
-        const terms = SBI.state.allTerms ? [...SBI.state.allTerms].sort() : [];
-        const subjectIdx = SBI.state.idx_subjects || {};
-
-        teacherTableBody.innerHTML = "";
-
-        if (teachers.length === 0) {
-            teacherTableBody.innerHTML = "<tr><td colspan='10' style='text-align:center; color:#999'>Список учителей пуст.</td></tr>";
-            return;
-        }
-        
-        // Helper for Subjects taught by teacher
-        const teacherSubjects = {};
-        (SBI.state.assignments || []).forEach(a => {
-            if(!teacherSubjects[a.teacher_id]) teacherSubjects[a.teacher_id] = new Set();
-            const sName = subjectIdx[a.subject_id] || a.subject_id;
-            teacherSubjects[a.teacher_id].add(sName);
-        });
-
-        // Render rows
-        teachers.forEach(t => {
-            const tr = document.createElement("tr");
-            const teacherId = t.teacher_id;
-            
-            // Name
-            const tdName = document.createElement("td");
-            tdName.textContent = buildTeacherName(t) || teacherId;
-            tdName.style.textAlign = "left";
-            tr.appendChild(tdName);
-
-            // Subject
-            const tdSubj = document.createElement("td");
-            const sSet = teacherSubjects[teacherId] || new Set();
-            tdSubj.textContent = Array.from(sSet).sort().join(", ") || "-";
-            tr.appendChild(tdSubj);
-
-            // Qual
-            const tdQual = document.createElement("td");
-            tdQual.textContent = teacherQualMap[t.qualification_code] || t.qualification_code || "-";
-            tr.appendChild(tdQual);
-
-            // Terms columns
-            terms.forEach(term => {
-                const td = document.createElement("td");
-                const tData = (teacherAssignmentMap[teacherId] && teacherAssignmentMap[teacherId][term]) || []; 
-                
-                if(tData.length === 0) {
-                    td.textContent = "-";
-                    td.style.color = "#ccc";
-                } else {
-                    const val = calculateMetric(tData, metric);
-                    td.textContent = val;
-                    colorCell(td, val, metric);
-                }
-                tr.appendChild(td);
+        // 1. Учителя
+        if (teacherSelect) {
+            teacherSelect.innerHTML = "";
+            const sortedTeachers = [...teachers].sort((a, b) => {
+                return buildTeacherName(a).localeCompare(buildTeacherName(b), "ru");
             });
 
-            teacherTableBody.appendChild(tr);
-        });
+            sortedTeachers.forEach(t => {
+                const opt = document.createElement("option");
+                opt.value = t.teacher_id;
+                opt.textContent = buildTeacherName(t);
+                teacherSelect.appendChild(opt);
+            });
+            // Выбираем первого учителя по умолчанию
+            if (sortedTeachers.length) {
+                 teacherSelect.value = sortedTeachers[0].teacher_id;
+            }
+        }
+
+        // 2. Четверти
+        if (termSelect) {
+            termSelect.innerHTML = "";
+            const sortedTerms = [...terms].sort(); // Сортируем по ID четверти
+
+            // Добавляем опцию "Все четверти"
+            const optAll = document.createElement("option");
+            optAll.value = "";
+            optAll.textContent = "Все четверти";
+            termSelect.appendChild(optAll);
+
+            sortedTerms.forEach(t => {
+                const opt = document.createElement("option");
+                opt.value = t;
+                opt.textContent = t;
+                termSelect.appendChild(opt);
+            });
+            // Выбираем последнюю четверть по умолчанию
+            if (sortedTerms.length) {
+                termSelect.value = sortedTerms[sortedTerms.length - 1];
+            } else {
+                termSelect.value = "";
+            }
+        }
     }
 
-    // ======================================================
-    // 3. ПЕРСОНАЛЬНЫЙ АНАЛИЗ РЕЗУЛЬТАТОВ (PERFORMANCE PIE)
-    // ======================================================
-    function renderPerformancePie() {
-        if(!perfPie || !perfTeacherSelect || !perfTermSelect) return;
+    /**
+     * Получает строки оценок, относящиеся к выбранному учителю и четверти.
+     * Это ключевая функция, выполняющая JOIN.
+     * @returns {Array} Отфильтрованные строки оценок.
+     */
+    function getTeacherRows() {
+        const selectedTeacherId = teacherSelect ? teacherSelect.value : null;
+        const selectedTermId = termSelect ? termSelect.value : null;
 
-        const tid = perfTeacherSelect.value;
-        const term = perfTermSelect.value;
+        if (!selectedTeacherId) {
+            log("[TeacherDashboard] Не выбран учитель.");
+            return [];
+        }
+
+        const allRows = state.allRows || [];
+        const assignments = state.teacherAssignments || [];
+
+        // 1. Находим все курсы, которые вел этот учитель в выбранной четверти
+        const taughtKeys = new Set(); // Set of "subject|class|term"
+        assignments.forEach(a => {
+            if (a.teacher_id === selectedTeacherId) {
+                if (!selectedTermId || a.term_id === selectedTermId) {
+                    const key = `${a.subject_id}|${a.class_id}|${a.term_id}`;
+                    taughtKeys.add(key);
+                }
+            }
+        });
+
+        if (taughtKeys.size === 0) {
+            log(`[TeacherDashboard] Не найдено назначений для учителя ${selectedTeacherId} в четверти ${selectedTermId || 'Все'}.`);
+            return [];
+        }
+
+        // 2. Фильтруем все оценки по найденным курсам
+        const filteredRows = allRows.filter(r => {
+            const key = `${r.subject}|${r.class}|${r.term}`;
+            return taughtKeys.has(key);
+        });
+
+        return filteredRows;
+    }
+
+    /**
+     * Рендеринг сводной таблицы.
+     * @param {Array} rows Отфильтрованные строки оценок.
+     */
+    function renderSummary(rows) {
+        if (!summaryContainer) return;
         
-        if(!tid || tid === "NODATA" || !term || term === "NODATA") {
-            Plotly.purge(perfPie);
-            perfPie.innerHTML = "<div style='padding:40px;text-align:center;color:#999'>Выберите учителя и четверть для анализа.</div>";
+        if (rows.length === 0) {
+            summaryContainer.innerHTML = `
+                <h3>Сводка по успеваемости</h3>
+                <p style="color:#e94c3d; font-weight: 500;">
+                    Для выбранного учителя и четверти не найдено данных об оценках.
+                </p>
+            `;
             return;
         }
 
-        // Get all rows (grades) assigned to this teacher/term combination from the pre-calculated map
-        const rows = (teacherAssignmentMap[tid] && teacherAssignmentMap[tid][term]) || [];
+        const avgScore = SBI.mean(rows.map(r => SBI.toNumber(r.final_5scale)).filter(v => v != null));
+        const knowledgeRatio = SBI.knowledgeRatio(rows);
+        const totalRecords = rows.length;
 
-        if(rows.length === 0) {
-            Plotly.purge(perfPie);
-            perfPie.innerHTML = "<div style='padding:40px;text-align:center;color:#999'>Нет оценок для выбранного учителя и четверти.</div>";
-            return;
-        }
+        const teacherRow = (state.teachers || []).find(t => t.teacher_id === teacherSelect.value);
+        const teacherName = buildTeacherName(teacherRow);
 
-        let counts = { '5': 0, '4': 0, '3': 0, '2': 0 };
-        let totalGrades = 0;
-        
-        rows.forEach(r => {
-            const g = SBI.toNumber(r.final_5scale);
-            if(g === 5) counts['5']++;
-            else if(g === 4) counts['4']++;
-            else if(g === 3) counts['3']++;
-            else if(g != null && g >= 2 && g < 3) counts['2']++;
+        summaryContainer.innerHTML = `
+            <h3>Сводка по успеваемости</h3>
+            <p><strong>Учитель:</strong> ${teacherName}</p>
+            <p><strong>Четверть:</strong> ${termSelect.value || 'Все'}</p>
             
-            if (g != null && g >= 2) totalGrades++;
+            <table class="data-table" style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+                <thead>
+                    <tr>
+                        <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2; text-align: left;">Показатель</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2; text-align: right;">Значение</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: left;">Средний балл (5-балльная)</td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: right; font-weight: bold;">
+                            ${avgScore != null ? avgScore.toFixed(2) : 'Н/Д'}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: left;">Качество знаний (доля 4 и 5)</td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: right; font-weight: bold;">
+                            ${knowledgeRatio != null ? (knowledgeRatio * 100).toFixed(1) + '%' : 'Н/Д'}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: left;">Всего оценок (строк)</td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">${totalRecords}</td>
+                    </tr>
+                </tbody>
+            </table>
+        `;
+    }
+
+    /**
+     * Рендеринг графика разбивки по предметам/классам.
+     * @param {Array} rows Отфильтрованные строки оценок.
+     */
+    function renderBreakdown(rows) {
+        if (!breakdownContainer) return;
+
+        if (rows.length === 0) {
+            Plotly.purge(breakdownContainer);
+            return;
+        }
+        
+        // Группируем по комбинации Предмет + Класс
+        const bySubjectClass = SBI.groupBy(
+            rows, 
+            r => `${r.subject} (${r.class})`,
+            r => SBI.toNumber(r.final_5scale)
+        );
+
+        const keys = Object.keys(bySubjectClass);
+        const avgScores = keys.map(k => {
+            const scores = bySubjectClass[k].filter(v => v != null);
+            return SBI.mean(scores);
         });
         
-        if (totalGrades === 0) {
-             Plotly.purge(perfPie);
-            perfPie.innerHTML = "<div style='padding:40px;text-align:center;color:#999'>Не найдено действительных 5-балльных оценок (2-5).</div>";
-            return;
-        }
+        // Создаем массив объектов для сортировки
+        const dataForSort = keys.map((key, index) => ({
+            key: key,
+            avg: avgScores[index]
+        })).filter(d => d.avg != null);
 
-        const data = [{
-            values: [counts['5'], counts['4'], counts['3'], counts['2']],
-            labels: ['Отлично (5)', 'Хорошо (4)', 'Удовлетворительно (3)', 'Неудовлетворительно (2)'],
-            type: 'pie',
-            hole: 0.5,
-            marker: { colors: ['#10B981', '#3B82F6', '#FBBF24', '#EF4444'] },
-            textinfo: 'label+percent+value',
-            sort: false
-        }];
+        // Сортируем от худшего к лучшему
+        dataForSort.sort((a, b) => a.avg - b.avg);
 
-        const teacher = SBI.state.teachers.find(t => t.teacher_id === tid);
-        const teacherName = buildTeacherName(teacher) || tid;
+        const sortedKeys = dataForSort.map(d => d.key);
+        const sortedScores = dataForSort.map(d => d.avg);
 
-        Plotly.newPlot(perfPie, data, {
-            title: `Распределение оценок для ${teacherName} (${term})`,
-            height: 350,
-            margin: { t: 40, b: 20, l: 20, r: 20 },
-            showlegend: true
-        }, {displayModeBar:false, responsive: true});
+
+        Plotly.newPlot(breakdownContainer, [{
+            x: sortedScores,
+            y: sortedKeys,
+            type: 'bar',
+            orientation: 'h',
+            marker: {
+                color: sortedScores.map(score => {
+                    if (score >= 4.5) return 'rgb(34, 139, 34)'; // Зеленый (отлично)
+                    if (score >= 3.5) return 'rgb(255, 165, 0)'; // Оранжевый (хорошо)
+                    return 'rgb(220, 20, 60)'; // Красный (ниже среднего)
+                })
+            }
+        }], {
+            title: 'Средний балл по преподаваемым курсам',
+            margin: { l: 150, r: 20, t: 50, b: 50 },
+            xaxis: { 
+                title: 'Средний балл (5-балльная)', 
+                range: [1.5, 5],
+                tickvals: [2, 3, 4, 5],
+                gridcolor: '#e0e0e0'
+            },
+            yaxis: { 
+                title: 'Предмет и класс',
+                automargin: true // Убедимся, что длинные названия классов влезают
+            }
+        }, {
+            responsive: true,
+            displayModeBar: false
+        });
     }
 
-    // ======================================================
-    // LIFECYCLE
-    // ======================================================
+    /**
+     * Основная функция обновления дашборда.
+     */
+    function update() {
+        if (!state.allRows || !state.allRows.length) {
+            log("[TeacherDashboard] Данные еще не загружены.");
+            if (summaryContainer) {
+                 summaryContainer.innerHTML = '<h3>Сводка по успеваемости</h3><p style="color:#666;">Пожалуйста, загрузите данные успеваемости (Excel).</p>';
+            }
+            if (breakdownContainer) Plotly.purge(breakdownContainer);
+            return;
+        }
+        
+        const filteredRows = getTeacherRows();
+        log("[TeacherDashboard] Отфильтровано строк:", filteredRows.length);
+        
+        renderSummary(filteredRows);
+        renderBreakdown(filteredRows);
+    }
+
+    /**
+     * Вызывается после загрузки всех данных из Excel.
+     */
     function onDataLoaded() {
-        const rows = SBI.state.allRows || [];
-        if (!rows.length) {
-            log("[TeacherDashboard] onDataLoaded: нет данных allRows");
+        if (!state.allRows || !state.allRows.length) {
+            log("[TeacherDashboard] onDataLoaded: Нет данных allRows.");
             return;
         }
-        
-        // 1. Построение внутренних индексов
-        buildDataMaps(); 
 
-        // 2. Заполнение всех селекторов
-        populateSelectors();
-        
-        // 3. Первичный рендеринг всех трех секций
-        renderQualDonut();
-        renderTeacherTable();
-        renderPerformancePie();
+        populateFilters();
+        update();
     }
-    
-    document.addEventListener('DOMContentLoaded', init); // Run init when DOM is ready
+
+    init();
 
     return {
-        onDataLoaded: onDataLoaded
+        onDataLoaded: onDataLoaded,
+        update: update // Чтобы можно было вызвать из кнопки
     };
 })();
-```eof

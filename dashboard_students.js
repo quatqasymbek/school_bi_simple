@@ -4,6 +4,11 @@ console.log("DASHBOARD_STUDENTS.JS: Loaded");
 window.SBI_Students = (function() {
     // Получение ссылок на глобальные переменные и утилиты
     const SBI = window.SBI;
+    // Проверка, что SBI существует, иначе не можем продолжить
+    if (!SBI || !SBI.state) {
+        console.error("DASHBOARD_STUDENTS: SBI object not found. Data processing will fail.");
+        return {};
+    }
     const state = SBI.state;
     const log = SBI.log || console.log;
 
@@ -20,10 +25,8 @@ window.SBI_Students = (function() {
      * @returns {string} Full name or ID fallback
      */
     function getStudentName(sid) {
-        // Ищем ученика по ID в общем списке
         const s = state.students.find(st => st.student_id === sid);
         if (!s) return sid;
-        // Формируем "Фамилия Имя"
         return `${s.last_name || ""} ${s.first_name || ""}`.trim() || sid;
     }
 
@@ -33,28 +36,24 @@ window.SBI_Students = (function() {
      * @returns {string} Subject name or ID fallback
      */
     function getSubjectName(subId) {
-        // Ищем предмет по ID
         const s = state.subjects.find(sub => sub.subject_id === subId);
         return s ? s.subject_name : subId;
     }
-
-    // --- CORE LOGIC ---
 
     /**
      * Initialization of DOM elements and event listeners.
      */
     function init() {
-        // Получаем ссылки на элементы управления с HTML-страницы
+        // IDs соответствуют элементам, добавленным в index.html
         classSelect = document.getElementById("studentsClassSelect");
         termSelect    = document.getElementById("studentsTermSelect");
         tableContainer = document.getElementById("studentsTableContainer");
 
-        // Привязываем функцию обновления к изменению фильтров
         if (classSelect) classSelect.onchange = updateTable;
         if (termSelect)  termSelect.onchange  = updateTable;
         
         if (tableContainer) {
-            tableContainer.innerHTML = '<h3>Успеваемость учеников</h3><p style="color:#666;">Пожалуйста, выберите класс и четверть, или загрузите данные.</p>';
+            tableContainer.innerHTML = '<h3 style="margin-top:0;">Успеваемость учеников</h3><p style="color:#666;">Пожалуйста, выберите класс и четверть, или загрузите данные.</p>';
         }
     }
 
@@ -62,31 +61,29 @@ window.SBI_Students = (function() {
      * Populates the Class and Term filters based on loaded data.
      */
     function populateFilters() {
+        // 1. Фильтр Классов
         if (classSelect) {
             classSelect.innerHTML = '';
-            // Сортируем классы по названию
+            // Сортируем классы
             const classes = state.classes.slice().sort((a,b) => a.class_name.localeCompare(b.class_name, 'kk'));
             
-            // Получаем уникальные ID классов и создаем <option>
             SBI.unique(classes.map(c => c.class_id)).forEach(cid => {
                 const classData = classes.find(c => c.class_id === cid);
                 if (classData) {
                     const opt = document.createElement("option");
                     opt.value = cid;
-                    // Отображаем только '6 «Ә»' вместо '6 «Ә» сыныбы'
-                    opt.textContent = classData.class_name.replace(' сыныбы', '').trim(); 
+                    opt.textContent = classData.class_name.replace(' сыныбы', '').trim(); // Отображаем '6 «Ә»'
                     classSelect.appendChild(opt);
                 }
             });
-            // Выбираем первый класс по умолчанию
             if (classes.length > 0) {
                 classSelect.value = classes[0].class_id;
             }
         }
 
+        // 2. Фильтр Четвертей
         if (termSelect) {
             termSelect.innerHTML = '';
-            // Сортируем четверти
             const terms = state.allTerms.slice().sort();
             terms.forEach(t => {
                 const opt = document.createElement("option");
@@ -94,9 +91,8 @@ window.SBI_Students = (function() {
                 opt.textContent = t;
                 termSelect.appendChild(opt);
             });
-            // Выбираем последнюю четверть по умолчанию
             if (terms.length > 0) {
-                termSelect.value = terms[terms.length - 1];
+                termSelect.value = terms[terms.length - 1]; // Последняя четверть по умолчанию
             }
         }
     }
@@ -118,7 +114,7 @@ window.SBI_Students = (function() {
              return;
         }
 
-        // Фильтруем все итоговые оценки по выбранному классу и четверти
+        // Фильтруем итоговые оценки по классу и четверти
         const classRows = state.allRows.filter(r => 
             r.class_id === selectedClassId && r.term === selectedTermId
         );
@@ -128,34 +124,31 @@ window.SBI_Students = (function() {
             return;
         }
 
-        // 1. Определяем все предметы, преподаваемые в выбранной группе
+        // 1. Определяем все предметы в этой выборке
         const subjectIds = SBI.unique(classRows.map(r => r.subject_id)).sort();
         const subjects = subjectIds.map(getSubjectName);
 
-        // 2. Группируем данные по ученикам
+        // 2. Группируем оценки по ученикам
         const gradesByStudent = SBI.groupBy(classRows, r => r.student_id);
 
         // 3. Подготавливаем данные для таблицы
         const tableData = [];
         for (const studentId in gradesByStudent) {
             const studentGrades = gradesByStudent[studentId];
-            
             const studentName = getStudentName(studentId);
             
             const subjectGradeMap = {};
             const finalGrades5Pt = [];
             
             studentGrades.forEach(gradeRow => {
-                // Сопоставляем оценку с предметом
                 subjectGradeMap[gradeRow.subject_id] = gradeRow.final_5scale;
-                
-                // Собираем оценки для расчета среднего
+                // Собираем валидные оценки (>0) для среднего балла
                 if (gradeRow.final_5scale != null && gradeRow.final_5scale > 0) {
                     finalGrades5Pt.push(gradeRow.final_5scale);
                 }
             });
 
-            // Расчет среднего балла (используем SBI.mean из utils.js)
+            // Расчет среднего балла
             const avgGrade = SBI.mean(finalGrades5Pt);
             
             tableData.push({
@@ -166,7 +159,7 @@ window.SBI_Students = (function() {
             });
         }
         
-        // 4. Сортируем по имени ученика
+        // 4. Сортируем по имени
         tableData.sort((a, b) => a.student_name.localeCompare(b.student_name, 'kk'));
 
         // 5. Строим HTML-таблицу
@@ -177,9 +170,10 @@ window.SBI_Students = (function() {
         html += '<thead><tr>';
         html += '<th style="text-align:left; min-width: 150px;">Ученик (ФИ)</th>';
         html += '<th style="text-align:left; min-width: 80px;">ID</th>';
-        // Динамические колонки предметов
+        // Динамические колонки предметов (сокращаем название, если очень длинное)
         subjects.forEach(subjectName => {
-            html += `<th title="${subjectName}" style="min-width: 60px;">${subjectName.substring(0, 10)}...</th>`;
+            const shortName = subjectName.length > 10 ? subjectName.substring(0, 10) + '...' : subjectName;
+            html += `<th title="${subjectName}" style="min-width: 60px;">${shortName}</th>`;
         });
         html += '<th style="min-width: 100px;">Средний балл</th>';
         html += '</tr></thead>';
@@ -194,11 +188,10 @@ window.SBI_Students = (function() {
             // Оценки по предметам
             subjectIds.forEach(subId => {
                 const grade = student.subject_grades[subId];
-                // Отображаем оценку или прочерк, если нет
                 const gradeDisplay = grade != null && grade > 0 ? grade.toFixed(0) : '-';
                 let style = '';
                 
-                // Цветовая разметка оценок (используем стили из других дашбордов)
+                // Цветовая разметка оценок
                 if (grade === 5) style = 'font-weight:bold; color: #2ecc71;'; // Green
                 else if (grade === 4) style = 'font-weight:bold; color: #3498db;'; // Blue
                 else if (grade === 3) style = 'color: #f1c40f;'; // Yellow
@@ -248,10 +241,17 @@ window.SBI_Students = (function() {
         populateFilters();
         updateTable();
     }
+    
+    // Функция обновления (вызывается при переключении страниц)
+    function update() {
+        // Просто вызываем основную функцию для перерисовки текущего состояния
+        updateTable();
+    }
 
     init();
 
     return {
-        onDataLoaded: onDataLoaded
+        onDataLoaded: onDataLoaded,
+        update: update
     };
 })();

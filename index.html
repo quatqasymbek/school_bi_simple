@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8" />
-    <title>Школьная аналитика (BI)</title>
+    <title>Школьная Аналитика (BI)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <!-- Styles -->
@@ -13,6 +13,7 @@
             --card-bg: #ffffff;
             --text: #333;
             --border: #dde2e5;
+            --accent: #3498db;
         }
         * { box-sizing: border-box; }
 
@@ -26,6 +27,7 @@
             height: 100vh;
         }
 
+        /* Header */
         header {
             background: var(--primary);
             color: #fff;
@@ -39,6 +41,7 @@
         }
         header h1 { font-size: 1.2rem; margin: 0; font-weight: 600; }
 
+        /* Tabs */
         .tabs-bar {
             background: #1c4e8f;
             display: flex;
@@ -74,10 +77,16 @@
 
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* Cards & Grid */
+        /* Grids */
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+        .grid-1 { display: grid; grid-template-columns: 1fr; gap: 20px; }
         
+        /* Responsive Grid */
+        @media (max-width: 768px) {
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+
+        /* Cards */
         .card {
             background: var(--card-bg);
             border-radius: 8px;
@@ -86,13 +95,13 @@
             border: 1px solid var(--border);
             margin-bottom: 20px;
         }
-        .card h3 { margin-top: 0; font-size: 1rem; color: #555; margin-bottom: 15px; }
+        .card h3 { margin-top: 0; font-size: 1rem; color: #555; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px;}
 
         /* Controls */
         .controls-row {
             display: flex;
             gap: 15px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             align-items: center;
             flex-wrap: wrap;
             background: #fff;
@@ -100,6 +109,7 @@
             border-radius: 8px;
             border: 1px solid var(--border);
         }
+        .controls-row label { font-weight: 500; font-size: 0.9rem; color: #555; margin-right: 5px; }
         select, button {
             padding: 8px 12px;
             border: 1px solid #ccc;
@@ -130,14 +140,16 @@
             min-height: 60px;
         }
         
-        /* Table Styling */
+        /* Data Tables */
+        .table-responsive { overflow-x: auto; }
         table.data-table {
             width: 100%;
             border-collapse: collapse;
             font-size: 0.9rem;
+            white-space: nowrap;
         }
         table.data-table th, table.data-table td {
-            padding: 10px;
+            padding: 10px 15px;
             text-align: center;
             border-bottom: 1px solid #eee;
         }
@@ -145,11 +157,18 @@
             background: #f9f9f9;
             font-weight: 600;
             color: #555;
+            text-align: left;
         }
+        table.data-table td:first-child, table.data-table th:first-child {
+            text-align: left;
+            font-weight: 500;
+        }
+        .grade-bad { color: #e74c3c; font-weight: bold; }
+        .grade-good { color: #2ecc71; font-weight: bold; }
 
         /* Utilities */
         #statusBar { font-size: 12px; color: #888; margin-right: 15px; }
-        #log { display: none; } /* Hidden log for prod look */
+        #log { display: none; } 
 
     </style>
 </head>
@@ -161,7 +180,7 @@
         <h1>Школьная Аналитика</h1>
     </div>
     <div style="display:flex; align-items:center;">
-        <span id="statusBar">Загрузка системы...</span>
+        <span id="statusBar">Ожидание загрузки...</span>
     </div>
 </header>
 
@@ -174,8 +193,9 @@
 </div>
 
 <main>
-    <!-- PAGE: OVERVIEW -->
+    <!-- PAGE 1: OVERVIEW -->
     <div id="overview" class="page active">
+        <!-- Selectors -->
         <div class="controls-row">
             <div>
                 <label>Четверть:</label>
@@ -205,9 +225,9 @@
             </div>
         </div>
 
-        <!-- Charts Row -->
+        <!-- Charts -->
         <div class="grid-2">
-            <!-- Donut Chart -->
+            <!-- Donut -->
             <div class="card">
                 <h3>Распределение успеваемости (по итогам четверти)</h3>
                 <div id="chart-overview-donut" style="height: 350px;"></div>
@@ -216,7 +236,7 @@
                 </div>
             </div>
 
-            <!-- Grade Level Analysis -->
+            <!-- Grades Bar -->
             <div class="card">
                 <h3>Динамика по параллелям (1-11 классы)</h3>
                 <div id="chart-overview-grades" style="height: 350px;"></div>
@@ -235,65 +255,155 @@
         </div>
     </div>
 
-    <!-- PAGE: CLASSES (Placeholders) -->
+    <!-- PAGE 2: CLASSES -->
     <div id="classes" class="page">
-        <div class="controls-row">
-            <select id="classTermSelect"></select>
-            <select id="classSelect"></select>
+        <!-- Block 1: Matrix Table -->
+        <div class="card">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:15px; flex-wrap: wrap; gap: 10px;">
+                <h3>Сводная таблица по классам</h3>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <label>Акцент (четверть):</label>
+                    <select id="clsTableTermSelect"></select>
+
+                    <label>Метрика:</label>
+                    <select id="clsTableMetricSelect">
+                        <option value="quality">Качество знаний (%)</option>
+                        <option value="average">Средняя оценка</option>
+                    </select>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table" id="class-summary-table">
+                    <thead>
+                        <tr id="class-summary-header">
+                            <th>Класс</th>
+                            <th>Кл. Руководитель</th>
+                            <!-- Term columns will be injected here via JS -->
+                        </tr>
+                    </thead>
+                    <tbody id="class-summary-body">
+                        <!-- Data rows injected here -->
+                    </tbody>
+                </table>
+            </div>
         </div>
-        <div id="chart-class-summary"></div>
-        <div class="grid-2">
-            <div id="chart-class-pie" style="height:300px;"></div>
-            <div id="chart-class-heatmap" style="height:300px;"></div>
+
+        <!-- Block 2: Detailed Donut -->
+        <div class="grid-1">
+            <div class="card">
+                <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+                    <h3>Детальный анализ успеваемости класса</h3>
+                    <div class="controls-row" style="margin-bottom:0; padding: 5px 10px; border:none;">
+                        <label>Четверть:</label>
+                        <select id="clsDonutTermSelect"></select>
+                        
+                        <label style="margin-left:10px;">Класс:</label>
+                        <select id="clsDonutClassSelect"></select>
+                    </div>
+                </div>
+                <div id="chart-class-donut" style="height:400px;"></div>
+            </div>
         </div>
     </div>
 
-    <!-- Other pages placeholders if needed for full context, but focusing on Overview -->
-    <div id="subjects" class="page"><p>Раздел предметов...</p></div>
-    <div id="teachers" class="page"><p>Раздел учителей...</p></div>
-    <div id="attendance" class="page">
-        <div class="controls-row">
-            <select id="attTermSummary"></select>
+    <!-- PAGE 3: SUBJECTS -->
+    <div id="subjects" class="page">
+        <div class="card">
+            <h3>Анализ по предметам</h3>
+            <p>Загрузка модуля предметов...</p>
+            <!-- Integration point for dashboard_subject.js -->
+            <div class="controls-row">
+                <label>Предмет:</label>
+                <select id="subjectSubjectSelect"></select>
+                <label>Четверть:</label>
+                <select id="subjectTermSelect"></select>
+            </div>
+            <div id="chart-subject-heatmap" style="height: 400px;"></div>
         </div>
-        <div id="chart-attendance-total"></div>
+    </div>
+
+    <!-- PAGE 4: TEACHERS -->
+    <div id="teachers" class="page">
+        <div class="card">
+            <h3>Анализ по учителям</h3>
+            <p>Функционал в разработке.</p>
+        </div>
+    </div>
+
+    <!-- PAGE 5: ATTENDANCE -->
+    <div id="attendance" class="page">
+        <div class="card">
+            <h3>Сводка по посещаемости</h3>
+            <div class="controls-row">
+                <label>Четверть:</label>
+                <select id="attTermSummary"></select>
+            </div>
+            <!-- Wrapper for Attendance Summary Table -->
+            <div id="attSummaryTableWrapper" class="table-responsive"></div>
+        </div>
+        
+        <div class="card">
+             <h3>Детализация по классам</h3>
+             <div class="controls-row">
+                <label>Четверть:</label>
+                <select id="attTermDetail"></select>
+                <label>Класс:</label>
+                <select id="attClassDetail"></select>
+            </div>
+            <!-- Wrapper for Attendance Detail Table -->
+            <div id="attDetailTableWrapper" class="table-responsive"></div>
+        </div>
     </div>
 
 </main>
 
-<!-- Scripts -->
+<!-- 1. Libraries -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 
-<!-- App Logic -->
+<!-- 2. App Utilities & Core -->
 <script src="utils.js"></script>
 <script src="main.js"></script>
 <script src="llm_cpu.js"></script>
+
+<!-- 3. Dashboard Modules -->
 <script src="overview.js"></script>
 <script src="overview_ai.js"></script>
 <script src="attendance.js"></script>
 <script src="dashboard_class.js"></script>
 <script src="dashboard_subject.js"></script>
 
+<!-- 4. UI Logic (Tab Switching) -->
 <script>
-    // Tab Switching Logic
     document.addEventListener('DOMContentLoaded', () => {
         const links = document.querySelectorAll('.tab-link');
         const pages = document.querySelectorAll('.page');
 
         function activatePage(pageId) {
+            // 1. Update Pages
             pages.forEach(p => p.classList.remove('active'));
-            links.forEach(l => l.classList.remove('active'));
-            
             const activePage = document.getElementById(pageId);
-            const activeLink = document.querySelector(`.tab-link[data-page="${pageId}"]`);
-            
             if (activePage) activePage.classList.add('active');
+
+            // 2. Update Tabs
+            links.forEach(l => l.classList.remove('active'));
+            const activeLink = document.querySelector(`.tab-link[data-page="${pageId}"]`);
             if (activeLink) activeLink.classList.add('active');
+            
+            // Optional: Trigger resize for Plotly charts when tab becomes visible
+            if (typeof Plotly !== 'undefined') {
+                setTimeout(() => {
+                    document.querySelectorAll('.js-plotly-plot').forEach(el => {
+                        Plotly.Plots.resize(el);
+                    });
+                }, 100);
+            }
         }
 
         links.forEach(link => {
-            link.addEventListener('click', () => {
-                activatePage(link.dataset.page);
+            link.addEventListener('click', (e) => {
+                const pageId = link.dataset.page;
+                activatePage(pageId);
             });
         });
     });

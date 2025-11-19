@@ -1,9 +1,10 @@
-// attendance.js
-console.log("attendance.js загружен");
+// attendance.js - Attendance Dashboard Logic
+console.log("ATTENDANCE.JS: Loaded");
 
-window.SBI_Attendance = (function () {
-    const state = SBI.state;
+window.SBI_Attendance = (function() {
+    const SBI = window.SBI;
 
+    // DOM Elements
     let summaryWrapper;
     let detailWrapper;
     let termSummarySelect;
@@ -11,10 +12,8 @@ window.SBI_Attendance = (function () {
     let classDetailSelect;
 
     function init() {
-        summaryWrapper = document.getElementById("attSummaryTableWrapper") ||
-            document.getElementById("chart-attendance-total");
-        detailWrapper = document.getElementById("attDetailTableWrapper") ||
-            document.getElementById("chart-attendance-class");
+        summaryWrapper = document.getElementById("attSummaryTableWrapper");
+        detailWrapper = document.getElementById("attDetailTableWrapper");
 
         termSummarySelect = document.getElementById("attTermSummary");
         termDetailSelect  = document.getElementById("attTermDetail");
@@ -25,10 +24,62 @@ window.SBI_Attendance = (function () {
         if (classDetailSelect) classDetailSelect.onchange = renderDetail;
     }
 
+    // Helper: Get Student Name
+    function getStudentName(sid) {
+        const s = SBI.state.students.find(st => st.student_id === sid);
+        if (!s) return sid;
+        return `${s.last_name || ""} ${s.first_name || ""}`.trim() || sid;
+    }
+
+    // Helper: Get Kazakh Class Name
+    function getClassName(cid) {
+        const c = SBI.state.classes.find(cl => cl.class_id === cid);
+        if (!c) return cid; // Fallback to ID if not found
+        return c.class_name || cid; // e.g. "1 «А» сыныбы"
+    }
+
+    function onDataLoaded() {
+        const rows = SBI.state.attendanceRows || [];
+        if (!rows.length) {
+            if (summaryWrapper) summaryWrapper.innerHTML = "<p style='padding:15px; color:#888'>Нет данных о посещаемости.</p>";
+            return;
+        }
+
+        // Populate Selectors
+        // Terms
+        const terms = SBI.unique(rows.map(r => r.term_id)).sort();
+        fillSelect(termSummarySelect, terms);
+        fillSelect(termDetailSelect, terms);
+
+        // Classes (IDs for value, Kazakh Names for display)
+        const classIds = SBI.unique(rows.map(r => r.class_id)).sort();
+        if (classDetailSelect) {
+            classDetailSelect.innerHTML = "";
+            classIds.forEach(cid => {
+                const opt = document.createElement("option");
+                opt.value = cid;
+                opt.textContent = getClassName(cid); // Show "1 «А» сыныбы"
+                classDetailSelect.appendChild(opt);
+            });
+        }
+
+        // Default selections
+        if (terms.length > 0) {
+            if(termSummarySelect) termSummarySelect.value = terms[0];
+            if(termDetailSelect) termDetailSelect.value = terms[0];
+        }
+        if (classIds.length > 0 && classDetailSelect) {
+            classDetailSelect.value = classIds[0];
+        }
+
+        renderSummary();
+        renderDetail();
+    }
+
     function fillSelect(select, values) {
         if (!select) return;
         select.innerHTML = "";
-        values.forEach(function (v) {
+        values.forEach(v => {
             const opt = document.createElement("option");
             opt.value = v;
             opt.textContent = v;
@@ -36,267 +87,157 @@ window.SBI_Attendance = (function () {
         });
     }
 
-    function getTermValue(row) {
-        return row.term_id || row.term || "";
-    }
-
-    function getClassValue(row) {
-        return row.class_id || row.class || "";
-    }
-
-    function formatClassLabel(cls) {
-        if (!cls) return "";
-        return String(cls).replace(/^K-/, "");
-    }
-
-    // 1) Сводка по классам
-    function computeClassSummary(rows, termFilter) {
-        const filtered = rows.filter(function (r) {
-            const t = getTermValue(r);
-            return !termFilter || t === termFilter;
-        });
-
-        const groups = SBI.groupBy(filtered, function (r) {
-            return getClassValue(r);
-        }, function (r) { return r; });
-
-        const result = Object.keys(groups).map(function (clsId) {
-            const list = groups[clsId];
-
-            const ratiosPresent = [];
-            const ratiosAbsent = [];
-            const ratiosLate = [];
-            let totalLessonsSum = 0;
-
-            list.forEach(function (r) {
-                const total = Number(r.total_classes ?? 0);
-                const present = Number(r.present_classes ?? 0);
-                const exc = Number(r.absent_excused_classes ?? 0);
-                const unexc = Number(r.absent_unexcused_classes ?? 0);
-                const late = Number(r.late_classes ?? 0);
-
-                const denom = total || (present + exc + unexc + late);
-                if (!denom) return;
-
-                totalLessonsSum += total || denom;
-                ratiosPresent.push(present / denom);
-                ratiosAbsent.push((exc + unexc) / denom);
-                ratiosLate.push(late / denom);
-            });
-
-            const presentPct = (SBI.mean(ratiosPresent) || 0) * 100;
-            const absentPct  = (SBI.mean(ratiosAbsent)  || 0) * 100;
-            const latePct    = (SBI.mean(ratiosLate)    || 0) * 100;
-
-            return {
-                classId: clsId,
-                totalClasses: totalLessonsSum,
-                presentPct: presentPct,
-                absentPct: absentPct,
-                latePct: latePct
-            };
-        }).filter(function (r) {
-            return r.classId;
-        }).sort(function (a, b) {
-            return b.presentPct - a.presentPct;
-        });
-
-        return result;
-    }
-
+    // ==========================================
+    // 1. SUMMARY TABLE (School Wide)
+    // ==========================================
     function renderSummary() {
-        if (!summaryWrapper) return;
-        const rows = state.attendanceRows || [];
+        if (!summaryWrapper || !termSummarySelect) return;
+        const term = termSummarySelect.value;
+        const rows = SBI.state.attendanceRows.filter(r => r.term_id === term);
 
-        if (!rows.length) {
-            summaryWrapper.innerHTML = "<p>В файле Excel нет листа «Посещаемость» или он пустой.</p>";
-            return;
-        }
+        // Aggregate by Class
+        const classStats = {};
 
-        const term = termSummarySelect ? termSummarySelect.value : "";
-        const summary = computeClassSummary(rows, term);
+        rows.forEach(r => {
+            const cid = r.class_id;
+            if (!classStats[cid]) classStats[cid] = { total: 0, present: 0, late: 0, exc: 0, unexc: 0 };
+            
+            classStats[cid].total += (parseInt(r.total_classes) || 0);
+            classStats[cid].present += (parseInt(r.present_classes) || 0);
+            classStats[cid].late += (parseInt(r.late_classes) || 0);
+            classStats[cid].exc += (parseInt(r.absent_excused_classes) || 0);
+            classStats[cid].unexc += (parseInt(r.absent_unexcused_classes) || 0);
+        });
 
-        const table = document.createElement("table");
-        table.className = "simple-table";
-
-        const thead = document.createElement("thead");
-        thead.innerHTML = `
-            <tr>
-                <th>Класс</th>
-                <th>Всего уроков</th>
-                <th>% присутствий</th>
-                <th>% отсутствий</th>
-                <th>% опозданий</th>
-            </tr>
+        let html = `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Класс</th>
+                        <th>% Посещаемости</th>
+                        <th>Всего уроков</th>
+                        <th>Присутствовал</th>
+                        <th>Опоздания</th>
+                        <th>Ув. причины</th>
+                        <th>Неув. причины</th>
+                    </tr>
+                </thead>
+                <tbody>
         `;
-        table.appendChild(thead);
 
-        const tbody = document.createElement("tbody");
-        summary.forEach(function (row) {
-            const tr = document.createElement("tr");
-            tr.innerHTML = `
-                <td>${formatClassLabel(row.classId)}</td>
-                <td>${row.totalClasses}</td>
-                <td>${row.presentPct.toFixed(1)}%</td>
-                <td>${row.absentPct.toFixed(1)}%</td>
-                <td>${row.latePct.toFixed(1)}%</td>
+        // Sort by Class ID for consistency
+        Object.keys(classStats).sort().forEach(cid => {
+            const s = classStats[cid];
+            const pct = s.total > 0 ? ((s.present / s.total) * 100).toFixed(1) : "-";
+            
+            html += `
+                <tr>
+                    <td style="text-align:left; font-weight:bold;">${getClassName(cid)}</td>
+                    <td style="font-weight:bold; color:${parseFloat(pct) < 90 ? '#e74c3c' : '#2ecc71'}">${pct}%</td>
+                    <td>${s.total}</td>
+                    <td>${s.present}</td>
+                    <td>${s.late}</td>
+                    <td>${s.exc}</td>
+                    <td>${s.unexc}</td>
+                </tr>
             `;
-            tbody.appendChild(tr);
         });
-        table.appendChild(tbody);
 
-        summaryWrapper.innerHTML = "";
-        summaryWrapper.appendChild(table);
+        html += `</tbody></table>`;
+        summaryWrapper.innerHTML = html;
     }
 
-    // 2) Детализация по ученикам
-    function computeStudentDetails(rows, classFilter, termFilter) {
-        const filtered = rows.filter(function (r) {
-            const cls = getClassValue(r);
-            const t   = getTermValue(r);
-            if (classFilter && cls !== classFilter) return false;
-            if (termFilter  && t   !== termFilter)  return false;
-            return true;
-        });
-
-        const byStudent = SBI.groupBy(filtered, function (r) {
-            return r.student_id || "";
-        }, function (r) { return r; });
-
-        const result = Object.keys(byStudent).map(function (sid) {
-            const list = byStudent[sid];
-            let total = 0;
-            let present = 0;
-            let exc = 0;
-            let unexc = 0;
-            let late = 0;
-
-            list.forEach(function (r) {
-                const t = Number(r.total_classes ?? 0);
-                const p = Number(r.present_classes ?? 0);
-                const e = Number(r.absent_excused_classes ?? 0);
-                const u = Number(r.absent_unexcused_classes ?? 0);
-                const l = Number(r.late_classes ?? 0);
-
-                const denom = t || (p + e + u + l);
-
-                total   += t || denom;
-                present += p;
-                exc     += e;
-                unexc   += u;
-                late    += l;
-            });
-
-            const name = (list[0] && list[0].student_name || "").trim();
-
-            return {
-                studentId: sid,
-                studentName: name || sid,
-                total: total,
-                present: present,
-                late: late,
-                exc: exc,
-                unexc: unexc
-            };
-        }).filter(function (r) {
-            return r.studentId;
-        }).sort(function (a, b) {
-            const absA = (a.exc + a.unexc);
-            const absB = (b.exc + b.unexc);
-            if (absB !== absA) return absB - absA; // больше пропусков — выше
-            return a.studentName.localeCompare(b.studentName, "ru");
-        });
-
-        return result;
-    }
-
+    // ==========================================
+    // 2. DETAIL TABLE (By Student)
+    // ==========================================
     function renderDetail() {
-        if (!detailWrapper) return;
-        const rows = state.attendanceRows || [];
+        if (!detailWrapper || !termDetailSelect || !classDetailSelect) return;
+        
+        const term = termDetailSelect.value;
+        const classId = classDetailSelect.value;
 
-        if (!rows.length) {
-            detailWrapper.innerHTML = "<p>Нет данных о посещаемости.</p>";
+        // Filter rows for this class and term
+        const rows = SBI.state.attendanceRows.filter(r => r.term_id === term && r.class_id === classId);
+
+        if (rows.length === 0) {
+            detailWrapper.innerHTML = "<div style='padding:20px; text-align:center; color:#999'>Нет данных для выбранного класса и четверти.</div>";
             return;
         }
 
-        const cls  = classDetailSelect ? classDetailSelect.value : "";
-        const term = termDetailSelect  ? termDetailSelect.value  : "";
+        // AGGREGATE BY STUDENT
+        // Since rows are per-subject, we must sum them up to get "Total Classes" for the student
+        const studentStats = {};
 
-        if (!cls || !term) {
-            detailWrapper.innerHTML = "<p>Выберите класс и четверть.</p>";
-            return;
-        }
-
-        const details = computeStudentDetails(rows, cls, term);
-
-        const table = document.createElement("table");
-        table.className = "simple-table";
-
-        const thead = document.createElement("thead");
-        thead.innerHTML = `
-            <tr>
-                <th>Ученик</th>
-                <th>Всего уроков</th>
-                <th>Присутствий</th>
-                <th>Опозданий</th>
-                <th>Пропуски (уваж.)</th>
-                <th>Пропуски (неуваж.)</th>
-            </tr>
-        `;
-        table.appendChild(thead);
-
-        const tbody = document.createElement("tbody");
-        details.forEach(function (row) {
-            const tr = document.createElement("tr");
-            tr.innerHTML = `
-                <td>${row.studentName}</td>
-                <td>${row.total}</td>
-                <td>${row.present}</td>
-                <td>${row.late}</td>
-                <td>${row.exc}</td>
-                <td>${row.unexc}</td>
-            `;
-            tbody.appendChild(tr);
+        rows.forEach(r => {
+            const sid = r.student_id;
+            if (!studentStats[sid]) {
+                studentStats[sid] = { 
+                    sid: sid,
+                    total: 0, present: 0, late: 0, exc: 0, unexc: 0 
+                };
+            }
+            
+            studentStats[sid].total += (parseInt(r.total_classes) || 0);
+            studentStats[sid].present += (parseInt(r.present_classes) || 0);
+            studentStats[sid].late += (parseInt(r.late_classes) || 0);
+            studentStats[sid].exc += (parseInt(r.absent_excused_classes) || 0);
+            studentStats[sid].unexc += (parseInt(r.absent_unexcused_classes) || 0);
         });
 
-        table.appendChild(tbody);
-        detailWrapper.innerHTML = "";
-        detailWrapper.appendChild(table);
+        let html = `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Ученик</th>
+                        <th>Посещаемость</th>
+                        <th>Всего уроков</th>
+                        <th>Присутствовал</th>
+                        <th>Опоздания</th>
+                        <th>Ув. пропуски</th>
+                        <th>Неув. пропуски</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        // Sort alphabetically by name
+        const sortedStudents = Object.values(studentStats).sort((a, b) => {
+            return getStudentName(a.sid).localeCompare(getStudentName(b.sid));
+        });
+
+        sortedStudents.forEach(s => {
+            const pct = s.total > 0 ? ((s.present / s.total) * 100).toFixed(1) : 0;
+            const colorClass = parseFloat(pct) < 85 ? 'color:#e74c3c' : 'color:#333'; // Highlight bad attendance
+
+            html += `
+                <tr>
+                    <td style="text-align:left;">
+                        <div style="font-weight:500;">${getStudentName(s.sid)}</div>
+                        <div style="font-size:0.8em; color:#999;">${s.sid}</div>
+                    </td>
+                    <td style="font-weight:bold; ${colorClass}">${pct}%</td>
+                    <td>${s.total}</td>
+                    <td>${s.present}</td>
+                    <td>${s.late}</td>
+                    <td>${s.exc}</td>
+                    <td>${s.unexc}</td>
+                </tr>
+            `;
+        });
+
+        html += "</tbody></table>";
+        
+        // Add footer explanation
+        html += `
+            <div style="margin-top:10px; font-size:0.85rem; color:#666; font-style:italic;">
+                * "Всего уроков" — сумма уроков по всем предметам, за которые выставлена посещаемость.
+            </div>
+        `;
+
+        detailWrapper.innerHTML = html;
     }
 
-    function onDataLoaded() {
-        const rows = state.attendanceRows || [];
-        if (!rows.length) {
-            const container = document.getElementById("chart-attendance-total");
-            if (container) {
-                container.innerHTML = "<p>В файле Excel нет листа «Посещаемость» или он пустой.</p>";
-            }
-            SBI.log("Дашборд посещаемости: нет данных.");
-            return;
-        }
-
-        const terms = SBI.unique(rows.map(getTermValue));
-        const classes = SBI.unique(rows.map(getClassValue));
-        state.attendanceTerms = terms;
-        state.attendanceClasses = classes;
-
-        fillSelect(termSummarySelect, terms);
-        fillSelect(termDetailSelect, terms);
-        fillSelect(classDetailSelect, classes);
-
-        if (terms.length) {
-            termSummarySelect.value = terms[0];
-            termDetailSelect.value  = terms[0];
-        }
-        if (classes.length) {
-            classDetailSelect.value = classes[0];
-        }
-
-        renderSummary();
-        renderDetail();
-    }
-
-    init();
+    document.addEventListener('DOMContentLoaded', init);
 
     return {
         onDataLoaded: onDataLoaded

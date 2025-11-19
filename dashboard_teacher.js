@@ -1,242 +1,317 @@
-// dashboard_teacher.js
-console.log("dashboard_teacher.js загружен");
+// dashboard_teacher.js - Teachers Analytics
+console.log("DASHBOARD_TEACHER.JS: Loaded");
 
-window.SBI_Teacher = (function () {
-    const state = SBI.state;
+window.SBI_Teacher = (function() {
+    const SBI = window.SBI;
 
-    let teacherSelect, subjectSelect;
-    let chartPerf, chartLoad, chartTrend;
+    // DOM Elements
+    let qualDonut, qualTermSelect;
+    let teacherTableBody, teacherMetricSelect;
+    let perfPie, perfTeacherSelect, perfTermSelect;
 
     function init() {
-        teacherSelect = document.getElementById("teacherSelect");
-        subjectSelect = document.getElementById("teacherSubjectSelect");
+        // 1. Qual Donut
+        qualDonut = document.getElementById("chart-teacher-qual");
+        qualTermSelect = document.getElementById("teachQualTermSelect");
 
-        chartPerf  = document.getElementById("chart-teacher-performance");
-        chartLoad  = document.getElementById("chart-teacher-subjects");
-        chartTrend = document.getElementById("chart-teacher-trend");
+        // 2. Teacher Table
+        teacherTableBody = document.getElementById("teachTableBody");
+        teacherMetricSelect = document.getElementById("teachTableMetricSelect");
 
-        if (teacherSelect) teacherSelect.onchange = onTeacherChange;
-        if (subjectSelect) subjectSelect.onchange = update;
-    }
+        // 3. Performance Pie
+        perfPie = document.getElementById("chart-teacher-perf");
+        perfTeacherSelect = document.getElementById("teachPerfTeacherSelect");
+        perfTermSelect = document.getElementById("teachPerfTermSelect");
 
-    function buildAssignmentIndex() {
-        if (state.assignByTeacher) return;
-        const assignments = state.assignments || state.teacherAssignments || [];
-        const map = {};
-        assignments.forEach(function (a) {
-            const tid = String(a.teacher_id || "").trim();
-            if (!tid) return;
-            if (!map[tid]) map[tid] = [];
-            map[tid].push(a);
-        });
-        state.assignByTeacher = map;
-    }
-
-    function populateTeachers() {
-        if (!teacherSelect) return;
-        const teachers = state.allTeachers || state.teachers || [];
-        teacherSelect.innerHTML = "";
-        teachers.forEach(function (t) {
-            const id = t.teacher_id;
-            if (!id) return;
-            const opt = document.createElement("option");
-            opt.value = id;
-            opt.textContent = t.teacher_name || id;
-            teacherSelect.appendChild(opt);
-        });
-    }
-
-    function subjectsForTeacher(teacherId) {
-        buildAssignmentIndex();
-        const assignments = (state.assignByTeacher && state.assignByTeacher[teacherId]) || [];
-        const idxSubj = state.idx_subjects || {};
-        const set = {};
-        assignments.forEach(function (a) {
-            const sid = String(a.subject_id || "").trim();
-            if (!sid) return;
-            const subjRow = idxSubj[sid] || {};
-            const name = String(subjRow.subject_name || subjRow.name || sid).trim();
-            set[sid] = name;
-        });
-        const arr = [];
-        Object.keys(set).forEach(function (sid) {
-            arr.push({ sid: sid, name: set[sid] });
-        });
-        return arr;
-    }
-
-    function populateSubjects(teacherId) {
-        if (!subjectSelect) return;
-        const subjects = subjectsForTeacher(teacherId);
-        subjectSelect.innerHTML = "";
-        subjects.forEach(function (s) {
-            const opt = document.createElement("option");
-            opt.value = s.sid;
-            opt.textContent = s.name;
-            subjectSelect.appendChild(opt);
-        });
-    }
-
-    function filterRowsForTeacher(teacherId, subjectId) {
-        const rows = state.allRows || [];
-        buildAssignmentIndex();
-        const assignments = state.assignByTeacher[teacherId] || [];
-
-        const keySet = {};
-        assignments.forEach(function (a) {
-            const sid = String(a.subject_id || "").trim();
-            const cid = String(a.class_id   || "").trim();
-            const tid = String(a.term_id    || "").trim();
-            if (!sid || !cid || !tid) return;
-            if (subjectId && sid !== subjectId) return;
-            keySet[sid + "|" + cid + "|" + tid] = true;
-        });
-
-        const filtered = rows.filter(function (r) {
-            const sid = String(r.subject_id || "").trim();
-            const cid = String(r.class_id   || "").trim();
-            const tid = String(r.term_id    || "").trim();
-            const key = sid + "|" + cid + "|" + tid;
-            return !!keySet[key];
-        });
-
-        return filtered;
-    }
-
-    function renderPerformanceBox(rows, teacherName, subjectName) {
-        if (!chartPerf) return;
-
-        if (!rows.length) {
-            Plotly.newPlot(chartPerf, [], {
-                title: "Нет данных по выбранному учителю / предмету",
-                xaxis: { title: "Четверть" },
-                yaxis: { title: "Итоговая оценка (1–5)" }
-            });
-            return;
-        }
-
-        const yVals = rows.map(function (r) {
-            return Number(r.final_5scale ?? r.final_percent ?? NaN);
-        }).filter(function (v) { return !Number.isNaN(v); });
-
-        Plotly.newPlot(chartPerf, [{
-            x: rows.map(function (r) { return r.term; }),
-            y: yVals,
-            type: "box"
-        }], {
-            title: teacherName + " — " + subjectName + " (распределение итоговых оценок)",
-            xaxis: { title: "Четверть" },
-            yaxis: { title: "Итоговая оценка (1–5)" }
-        });
-    }
-
-    function renderLoadChart(rows) {
-        if (!chartLoad) return;
-
-        if (!rows.length) {
-            Plotly.newPlot(chartLoad, [], {
-                title: "Нет классов для данного учителя / предмета",
-                xaxis: { title: "Класс" },
-                yaxis: { title: "Количество записей" }
-            });
-            return;
-        }
-
-        const counts = {};
-        rows.forEach(function (r) {
-            const cls = r.class;
-            if (!counts[cls]) counts[cls] = 0;
-            counts[cls]++;
-        });
-
-        Plotly.newPlot(chartLoad, [{
-            x: Object.keys(counts),
-            y: Object.values(counts),
-            type: "bar"
-        }], {
-            title: "Нагрузка по классам (количество оценок)",
-            xaxis: { title: "Класс" },
-            yaxis: { title: "Количество" }
-        });
-    }
-
-    function renderTrend(rows) {
-        if (!chartTrend) return;
-
-        if (!rows.length) {
-            Plotly.newPlot(chartTrend, [], {
-                title: "Нет данных для отображения динамики",
-                xaxis: { title: "Четверть" },
-                yaxis: { title: "Средний балл (1–5)" }
-            });
-            return;
-        }
-
-        const byTerm = SBI.groupBy(rows, function (r) { return r.term; }, function (r) {
-            return Number(r.final_5scale ?? r.final_percent ?? NaN);
-        });
-
-        const terms = Object.keys(byTerm);
-        const avg = terms.map(function (t) { return SBI.mean(byTerm[t]); });
-
-        Plotly.newPlot(chartTrend, [{
-            x: terms,
-            y: avg,
-            mode: "lines+markers"
-        }], {
-            title: "Динамика среднего балла по четвертям",
-            xaxis: { title: "Четверть" },
-            yaxis: { title: "Средний балл (1–5)" }
-        });
-    }
-
-    function onTeacherChange() {
-        const teacherId = teacherSelect ? teacherSelect.value : "";
-        if (!teacherId) return;
-
-        populateSubjects(teacherId);
-        update();
-    }
-
-    function update() {
-        if (!teacherSelect || !subjectSelect) return;
-        const teacherId = teacherSelect.value;
-        const subjectId = subjectSelect.value;
-        if (!teacherId || !subjectId) return;
-
-        const teacher = (state.allTeachers || state.teachers || []).find(function (t) {
-            return String(t.teacher_id) === String(teacherId);
-        });
-        const teacherName = teacher ? (teacher.teacher_name || teacherId) : teacherId;
-
-        const subjList = subjectsForTeacher(teacherId);
-        const subjObj = subjList.find(function (s) { return s.sid === subjectId; });
-        const subjectName = subjObj ? subjObj.name : subjectId;
-
-        const rows = filterRowsForTeacher(teacherId, subjectId);
-        SBI.log("По учителям → строк для " + teacherName + ", " + subjectName + ": " + rows.length);
-
-        renderPerformanceBox(rows, teacherName, subjectName);
-        renderLoadChart(rows);
-        renderTrend(rows);
+        // Listeners
+        if(qualTermSelect) qualTermSelect.onchange = renderQualDonut;
+        if(teacherMetricSelect) teacherMetricSelect.onchange = renderTeacherTable;
+        if(perfTeacherSelect) perfTeacherSelect.onchange = renderPerformancePie;
+        if(perfTermSelect) perfTermSelect.onchange = renderPerformancePie;
     }
 
     function onDataLoaded() {
-        const rows = state.allRows || [];
-        if (!rows.length) {
-            SBI.log("Дашборд по учителям: нет данных.");
-            return;
-        }
-        populateTeachers();
-        if (teacherSelect && teacherSelect.options.length) {
-            teacherSelect.selectedIndex = 0;
-            onTeacherChange();
+        populateSelectors();
+        renderQualDonut();
+        renderTeacherTable();
+        renderPerformancePie();
+    }
+
+    function populateSelectors() {
+        const terms = SBI.state.allTerms ? SBI.state.allTerms.sort() : [];
+        const teachers = SBI.state.teachers || [];
+
+        // Sort teachers by name
+        teachers.sort((a,b) => {
+            const na = `${a.last_name} ${a.first_name}`;
+            const nb = `${b.last_name} ${b.first_name}`;
+            return na.localeCompare(nb);
+        });
+
+        // 1. Qual Term
+        fillSelect(qualTermSelect, terms);
+        
+        // 2. Perf Term
+        fillSelect(perfTermSelect, terms);
+
+        // 3. Perf Teacher
+        if (perfTeacherSelect) {
+            perfTeacherSelect.innerHTML = "";
+            teachers.forEach(t => {
+                const opt = document.createElement("option");
+                opt.value = t.teacher_id;
+                opt.textContent = `${t.last_name} ${t.first_name}`;
+                perfTeacherSelect.appendChild(opt);
+            });
+            if(teachers.length) perfTeacherSelect.value = teachers[0].teacher_id;
         }
     }
 
-    init();
+    function fillSelect(select, values) {
+        if (!select) return;
+        const oldVal = select.value;
+        select.innerHTML = "";
+        values.forEach(v => {
+            const opt = document.createElement("option");
+            opt.value = v;
+            opt.textContent = v;
+            select.appendChild(opt);
+        });
+        // Restore selection if possible, else first
+        if(values.includes(oldVal)) select.value = oldVal;
+        else if(values.length > 0) select.value = values[0];
+    }
 
-    return {
-        onDataLoaded: onDataLoaded
-    };
+    // Helper: Find Teacher ID for a specific Class+Subject+Term
+    // We memoize this or just lookup.
+    function getTeacherForAssignment(classId, subjectId, termId) {
+        const asg = SBI.state.assignments || [];
+        // Assignment format: teacher_id, class_id, subject_id, term_id
+        const found = asg.find(a => a.class_id === classId && a.subject_id === subjectId && a.term_id === termId);
+        return found ? found.teacher_id : null;
+    }
+
+    // ======================================================
+    // 1. QUALIFICATION DONUT
+    // ======================================================
+    function renderQualDonut() {
+        if(!qualDonut || !qualTermSelect) return;
+        const term = qualTermSelect.value;
+        const teachers = SBI.state.teachers || [];
+        const assignments = SBI.state.assignments || [];
+
+        // Filter teachers active in this term (have at least one assignment)
+        // If no assignments loaded, show all teachers
+        let activeTids = new Set();
+        if(assignments.length > 0) {
+            assignments.filter(a => a.term_id === term).forEach(a => activeTids.add(a.teacher_id));
+        } else {
+            // Fallback if no assignment data: show all
+            teachers.forEach(t => activeTids.add(t.teacher_id));
+        }
+
+        const activeTeachers = teachers.filter(t => activeTids.has(t.teacher_id));
+        
+        if(activeTeachers.length === 0) {
+            qualDonut.innerHTML = "<div style='padding:20px;text-align:center;color:#999'>Нет учителей с нагрузкой в этой четверти</div>";
+            return;
+        }
+
+        // Get Mapping code -> readable name
+        // TEACHER_QUALS: qual_name, qual_code
+        const qualMap = {};
+        (SBI.state.teacherQuals || []).forEach(q => {
+            qualMap[q.qual_code] = q.qual_name;
+        });
+
+        // Count
+        const counts = {};
+        activeTeachers.forEach(t => {
+            const code = t.qualification_code || "Unknown";
+            const name = qualMap[code] || code;
+            counts[name] = (counts[name] || 0) + 1;
+        });
+
+        const data = [{
+            values: Object.values(counts),
+            labels: Object.keys(counts),
+            type: 'pie',
+            hole: 0.4,
+            textinfo: 'label+value'
+        }];
+
+        const layout = {
+            title: `Квалификации (${term})`,
+            margin: { t: 30, b: 10, l: 10, r: 10 },
+            showlegend: true
+        };
+
+        Plotly.newPlot(qualDonut, data, layout, {displayModeBar:false});
+    }
+
+    // ======================================================
+    // 2. TEACHER MATRIX TABLE
+    // ======================================================
+    function renderTeacherTable() {
+        if(!teacherTableBody) return;
+        const metric = teacherMetricSelect ? teacherMetricSelect.value : "quality";
+        const teachers = SBI.state.teachers || [];
+        const rows = SBI.state.allRows || [];
+        const terms = SBI.state.allTerms || [];
+        const subjects = SBI.state.subjects || [];
+
+        teacherTableBody.innerHTML = "";
+
+        // We need to iterate teachers, find their rows per term.
+        // Since linking is heavy (Row -> Teacher), let's pre-calculate map:
+        // Map: TeacherID -> Term -> [Row1, Row2...]
+        
+        const teacherRows = {}; // { "T-001": { "2024-T1": [...], "2024-T2": [...] } }
+
+        rows.forEach(r => {
+            const tid = getTeacherForAssignment(r.class_id, r.subject_id, r.term);
+            if(!tid) return;
+            
+            if(!teacherRows[tid]) teacherRows[tid] = {};
+            if(!teacherRows[tid][r.term]) teacherRows[tid][r.term] = [];
+            teacherRows[tid][r.term].push(r);
+        });
+
+        // Find Subject Name for teacher (based on assignments or rows)
+        const teacherSubjects = {};
+        (SBI.state.assignments || []).forEach(a => {
+            if(!teacherSubjects[a.teacher_id]) teacherSubjects[a.teacher_id] = new Set();
+            // Lookup subject name
+            const subjObj = subjects.find(s => s.subject_id === a.subject_id);
+            const sName = subjObj ? subjObj.subject_name : a.subject_id;
+            teacherSubjects[a.teacher_id].add(sName);
+        });
+
+        // Get Qual Names
+        const qualMap = {};
+        (SBI.state.teacherQuals || []).forEach(q => { qualMap[q.qual_code] = q.qual_name; });
+
+        teachers.forEach(t => {
+            const tr = document.createElement("tr");
+            
+            // Name
+            const tdName = document.createElement("td");
+            tdName.textContent = `${t.last_name} ${t.first_name}`;
+            tdName.style.textAlign = "left";
+            tr.appendChild(tdName);
+
+            // Subject
+            const tdSubj = document.createElement("td");
+            const sSet = teacherSubjects[t.teacher_id] || new Set();
+            tdSubj.textContent = Array.from(sSet).join(", ") || "-";
+            tr.appendChild(tdSubj);
+
+            // Qualification
+            const tdQual = document.createElement("td");
+            tdQual.textContent = qualMap[t.qualification_code] || t.qualification_code || "-";
+            tr.appendChild(tdQual);
+
+            // Terms
+            terms.forEach(term => {
+                const td = document.createElement("td");
+                const tData = teacherRows[t.teacher_id] ? teacherRows[t.teacher_id][term] : null;
+
+                if(!tData || tData.length === 0) {
+                    td.textContent = "-";
+                    td.style.color = "#ccc";
+                } else {
+                    const val = calculateMetric(tData, metric);
+                    td.textContent = val;
+                    colorCell(td, val, metric);
+                }
+                tr.appendChild(td);
+            });
+
+            teacherTableBody.appendChild(tr);
+        });
+    }
+
+    function calculateMetric(rows, metric) {
+        const grades = rows.map(r => r.final_5scale).filter(g => g != null);
+        if(grades.length === 0) return "-";
+
+        if (metric === 'average') {
+            return SBI.mean(grades).toFixed(2);
+        } else {
+            const good = grades.filter(g => g >= 4).length;
+            return ((good / grades.length) * 100).toFixed(0) + "%";
+        }
+    }
+
+    function colorCell(td, valStr, metric) {
+        const val = parseFloat(valStr);
+        if(isNaN(val)) return;
+        if(metric === 'quality') {
+            if(val >= 70) td.className = 'grade-good';
+            else if(val < 40) td.className = 'grade-bad';
+        } else {
+            if(val >= 4.5) td.className = 'grade-good';
+            else if(val < 3.0) td.className = 'grade-bad';
+        }
+    }
+
+    // ======================================================
+    // 3. INDIVIDUAL TEACHER PERFORMANCE
+    // ======================================================
+    function renderPerformancePie() {
+        if(!perfPie || !perfTeacherSelect || !perfTermSelect) return;
+
+        const tid = perfTeacherSelect.value;
+        const term = perfTermSelect.value;
+        
+        if(!tid || !term) {
+            perfPie.innerHTML = "";
+            return;
+        }
+
+        // Filter Rows: Must be taught by this teacher in this term
+        const rows = (SBI.state.allRows || []).filter(r => {
+            return r.term === term && getTeacherForAssignment(r.class_id, r.subject_id, r.term) === tid;
+        });
+
+        if(rows.length === 0) {
+            Plotly.purge(perfPie);
+            perfPie.innerHTML = "<div style='padding:40px;text-align:center;color:#999'>Нет оценок у этого учителя в выбранной четверти</div>";
+            return;
+        }
+
+        // Count 5/4/3/2
+        // Note: One student might have multiple subjects with this teacher? Usually not, but possible.
+        // We count *Grades*, not *Students*. (e.g. 5 in Math, 4 in Physics -> 1 Otlichno, 1 Khorosho)
+        let counts = { '5': 0, '4': 0, '3': 0, '2': 0 };
+        
+        rows.forEach(r => {
+            const g = r.final_5scale;
+            if(g === 5) counts['5']++;
+            else if(g === 4) counts['4']++;
+            else if(g === 3) counts['3']++;
+            else if(g != null && g <= 2) counts['2']++;
+        });
+
+        const data = [{
+            values: [counts['5'], counts['4'], counts['3'], counts['2']],
+            labels: ['Отличники (5)', 'Хорошисты (4)', 'Троечники (3)', 'Двоечники (2)'],
+            type: 'pie',
+            hole: 0.5,
+            marker: { colors: ['#2ecc71', '#3498db', '#f1c40f', '#e74c3c'] },
+            textinfo: 'label+percent+value'
+        }];
+
+        const layout = {
+            title: 'Распределение оценок',
+            margin: { t: 40, b: 20, l: 20, r: 20 },
+            showlegend: true
+        };
+
+        Plotly.newPlot(perfPie, data, layout, {displayModeBar:false});
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+
+    return { onDataLoaded };
 })();

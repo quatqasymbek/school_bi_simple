@@ -1,172 +1,265 @@
-// ==========================================================
-//               MAIN.JS — ФИНАЛЬНАЯ РАБОЧАЯ ВЕРСИЯ (19.11.2025)
-// ==========================================================
+// main.js - Data Loading and Processing Core
+console.log("MAIN.JS: Initializing...");
 
-console.log("main.js: Загрузка...");
-
-// ==================== ГЛОБАЛЬНЫЙ ОБЪЕКТ SBI ====================
 window.SBI = window.SBI || {};
 const SBI = window.SBI;
 
-// Логгер
-SBI.log = function (...args) {
-    console.log("[SBI]", ...args);
+// ==========================================
+// 1. STATE MANAGEMENT
+// ==========================================
+SBI.state = {
+    allRows: [], 
+    students: [],
+    teachers: [], 
+    teacherQuals: [], 
+    assignments: [], 
+    classes: [],
+    subjects: [],
+    terms: [],
+    attendanceRows: [],
+    weights: {}, 
+    gradingScale: [] 
 };
 
-// Статус-бар
-SBI.setStatus = function (msg) {
-    console.log("[STATUS]", msg);
-    const el = document.getElementById("statusBar");
-    if (el) el.textContent = msg;
-};
+// ==========================================
+// 2. DATA PROCESSING HELPERS
+// ==========================================
 
-// Безопасный toNumber
-SBI.toNumber = function (value) {
-    if (value == null || value === "") return null;
-    if (typeof value === "number") return Number.isFinite(value) ? value : null;
-    const s = String(value).replace(",", ".").trim();
-    if (!s) return null;
-    const n = Number(s);
-    return Number.isNaN(n) ? null : n;
-};
-
-// Уникальные значения
-SBI.unique = function (arr) {
-    if (!Array.isArray(arr)) return [];
-    return [...new Set(arr.map(v => v == null ? "" : String(v).trim()).filter(Boolean))];
-};
-
-// Среднее (уже есть в utils.js, но на всякий случай)
-SBI.mean = function (arr) {
-    const valid = arr.filter(n => typeof n === "number" && !isNaN(n));
-    if (!valid.length) return 0;
-    return valid.reduce((a, b) => a + b, 0) / valid.length;
-};
-
-// Группировка
-SBI.groupBy = function (arr, keyFn) {
-    const res = {};
-    arr.forEach(item => {
-        const key = keyFn(item);
-        (res[key] = res[key] || []).push(item);
-    });
-    return res;
-};
-
-SBI.log("SBI объект инициализирован");
-
-// ==========================================================
-//                   ЗАГРУЗКА EXCEL
-// ==========================================================
-
-const fileInput = document.getElementById("excelUpload");
-if (!fileInput) {
-    SBI.log("ОШИБКА: #excelUpload не найден в HTML");
+function parsePercent(val) {
+    if (val == null || val === "") return null;
+    let s = String(val).replace(",", ".").replace("%", "").trim();
+    let n = parseFloat(s);
+    if (isNaN(n)) return null;
+    if (n <= 1.0 && n > 0) return n * 100; 
+    return n;
 }
 
-SBI.setStatus("Готово. Загрузите файл example_excel.xlsx");
+function convertTo5Scale(score, scaleRules) {
+    if (score == null) return null;
+    if (!scaleRules || scaleRules.length === 0) {
+        if (score >= 85) return 5;
+        if (score >= 70) return 4;
+        if (score >= 55) return 3;
+        if (score >= 0) return 2;
+        return 0;
+    }
+    for (let rule of scaleRules) {
+        if (score >= rule.min && score <= rule.max) {
+            return rule.grade;
+        }
+    }
+    return 2; 
+}
 
-if (fileInput) {
-    fileInput.addEventListener("change", async function () {
-        const file = fileInput.files[0];
-        if (!file) return;
+// ==========================================
+// 3. LOAD & PROCESS EXCEL FILES
+// ==========================================
 
-        SBI.setStatus("Чтение файла: " + file.name);
+SBI.loadData = async function(files) {
+    SBI.setStatus("Чтение файлов...");
+    const state = SBI.state;
+    
+    // Reset state
+    state.allRows = [];
+    state.students = [];
+    state.teachers = [];
+    state.teacherQuals = [];
+    state.assignments = [];
+    state.classes = [];
+    state.subjects = [];
+    state.terms = [];
+    state.attendanceRows = [];
 
+    let rawGrades = [];
+    let rawWeights = [];
+    let rawScale = [];
+
+    for (let file of files) {
         try {
             const data = await file.arrayBuffer();
-            const workbook = XLSX.read(data, { type: "array" });
-            const sheets = workbook.Sheets;
+            const workbook = XLSX.read(data);
+            const fileName = file.name.toUpperCase();
 
-            const read = name => sheets[name] ? XLSX.utils.sheet_to_json(sheets[name], { defval: null }) : [];
+            // Helper: Try to find data by Sheet Name first, then by File Name
+            const getData = (keyword) => {
+                const key = keyword.toUpperCase();
+                
+                // 1. Try Sheet Name
+                const sn = workbook.SheetNames.find(n => n.toUpperCase().includes(key));
+                if (sn) return XLSX.utils.sheet_to_json(workbook.Sheets[sn]);
 
-            const studentsRaw    = read("УЧАЩИЕСЯ");
-            const classesRaw     = read("КЛАССЫ");
-            const subjectsRaw    = read("ПРЕДМЕТЫ");
-            const termsRaw       = read("ЧЕТВЕРТИ");
-            const teachersRaw    = read("УЧИТЕЛЯ");
-            const assignmentsRaw = read("НАЗНАЧЕНИЯ_ПРЕПОД");
-            const gradesRaw      = read("ОЦЕНКИ");
-            const weightsRaw     = read("ВЕСА_ОЦЕНОК");
-            const scaleRaw       = read("ШКАЛА_5Б");
-            const attendanceRaw  = read("ПОСЕЩАЕМОСТЬ");
-
-            // Индексы для быстрого поиска
-            const idx_students = {}; studentsRaw.forEach(r => { if (r.student_id) idx_students[String(r.student_id).trim()] = r; });
-            const idx_classes  = {}; classesRaw.forEach(r => { if (r.class_id) idx_classes[String(r.class_id).trim()] = r; });
-            const idx_subjects = {}; subjectsRaw.forEach(r => { if (r.subject_id) idx_subjects[String(r.subject_id).trim()] = r; });
-
-            SBI.state = {
-                idx_students, idx_classes, idx_subjects,
-                students: studentsRaw,
-                classesTable: classesRaw,
-                subjectsTable: subjectsRaw,
-                teachers: teachersRaw,
-                assignments: assignmentsRaw,
-                attendanceRows: attendanceRaw.map(r => ({
-                    ...r,
-                    student_id: String(r.student_id || "").trim(),
-                    class_id: String(r.class_id || "").trim(),
-                    term_id: String(r.term_id || "").trim(),
-                    subject_id: String(r.subject_id || "").trim(),
-                })),
+                // 2. Try File Name (if checking a CSV)
+                if (fileName.includes(key)) {
+                    // Return first sheet content
+                    const firstSheet = workbook.SheetNames[0];
+                    return XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet]);
+                }
+                return [];
             };
 
-            // === РАСЧЁТ АНАЛИТИЧЕСКИХ СТРОК (allRows) ===
-            const analyticRows = [];
+            // Accumulate Data
+            state.students = state.students.concat(getData("УЧАЩИЕСЯ"));
+            state.teachers = state.teachers.concat(getData("УЧИТЕЛЯ"));
+            state.classes = state.classes.concat(getData("КЛАССЫ"));
+            state.subjects = state.subjects.concat(getData("ПРЕДМЕТЫ"));
+            state.terms = state.terms.concat(getData("ЧЕТВЕРТИ"));
+            
+            // New Sheets for Teachers Page
+            // "НАЗНАЧЕНИЯ" covers "НАЗНАЧЕНИЯ_ПРЕПОД"
+            state.assignments = state.assignments.concat(getData("НАЗНАЧЕНИЯ")); 
+            // "QUALS" covers "TEACHER_QUALS"
+            state.teacherQuals = state.teacherQuals.concat(getData("QUALS")); 
+            
+            rawGrades = rawGrades.concat(getData("ОЦЕНКИ"));
+            
+            // Weights sometimes named "ВЕСА" or "ВЕСА_ОЦЕНОК"
+            rawWeights = rawWeights.concat(getData("ВЕСА")); 
+            
+            // Scale sometimes "ШКАЛА" or "ШКАЛА_5Б"
+            rawScale = rawScale.concat(getData("ШКАЛА")); 
+            
+            state.attendanceRows = state.attendanceRows.concat(getData("ПОСЕЩАЕМОСТЬ"));
 
-            // Здесь упрощённая логика — главное, чтобы allRows заполнился
-            // (в реальном проекте здесь весь ваш код расчёта final_5scale и т.д.)
-            // Для примера просто копируем оценки с добавлением имён
-            gradesRaw.forEach(g => {
-                const student = idx_students[String(g.student_id || "").trim()] || {};
-                const cls = idx_classes[String(g.class_id || "").trim()] || {};
-                const subj = idx_subjects[String(g.subject_id || "").trim()] || {};
+        } catch (e) {
+            console.error("Error reading file:", file.name, e);
+        }
+    }
 
-                analyticRows.push({
-                    student_id: String(g.student_id || "").trim(),
-                    student_name: `${student.last_name || ""} ${student.first_name || ""}".trim() || g.student_id,
-                    class_id: String(g.class_id || "").trim(),
-                    class: cls.class_name || g.class_id,
-                    subject_id: String(g.subject_id || "").trim(),
-                    subject: subj.subject_name || g.subject_id,
-                    term: String(g.term_id || "").trim(),
-                    final_5scale: SBI.toNumber(g.final_5scale) || null,
-                    final_percent: SBI.toNumber(g.percent) || null,
-                });
-            });
+    SBI.setStatus("Обработка оценок...");
+    processAnalytics(rawGrades, rawWeights, rawScale);
+    
+    SBI.setStatus("Готово. Обновление дашбордов...");
+    
+    // Notify Dashboards
+    if (window.SBI_Overview && window.SBI_Overview.update) window.SBI_Overview.update();
+    if (window.SBI_Class && window.SBI_Class.onDataLoaded) window.SBI_Class.onDataLoaded();
+    if (window.SBI_Attendance && window.SBI_Attendance.onDataLoaded) window.SBI_Attendance.onDataLoaded();
+    if (window.SBI_Subject && window.SBI_Subject.onDataLoaded) window.SBI_Subject.onDataLoaded();
+    if (window.SBI_Teacher && window.SBI_Teacher.onDataLoaded) window.SBI_Teacher.onDataLoaded();
+};
 
-            SBI.state.allRows = analyticRows;
-            SBI.state.allTerms = SBI.unique(analyticRows.map(r => r.term));
-            SBI.state.allClasses = SBI.unique(analyticRows.map(r => r.class));
-            SBI.state.allSubjects = SBI.unique(analyticRows.map(r => r.subject));
+function processAnalytics(grades, weightsRaw, scaleRaw) {
+    const scaleRules = scaleRaw.map(r => ({
+        grade: parseInt(r.grade_5pt),
+        min: parseFloat(r.pct_min),
+        max: parseFloat(r.pct_max)
+    })).sort((a,b) => b.min - a.min); 
 
-            SBI.setStatus("Данные загружены — " + analyticRows.length + " записей");
+    const weightMap = {};
+    weightsRaw.forEach(w => {
+        const t = w.term_id || 'default';
+        const s = w.subject_id || 'default';
+        const type = (w.work_type || "").toUpperCase().trim();
+        const val = parseFloat(w.weight_pct) / 100.0;
 
-            // === БЕЗОПАСНАЯ ИНИЦИАЛИЗАЦИЯ ВСЕХ ДАШБОРДОВ ===
-            setTimeout(() => {
-                const init = (obj) => {
-                    if (obj && typeof obj.onDataLoaded === "function") {
-                        try { obj.onDataLoaded(); }
-                        catch (e) { console.error("Ошибка инициализации дашборда:", e); }
-                    }
-                };
+        if (!weightMap[t]) weightMap[t] = {};
+        if (!weightMap[t][s]) weightMap[t][s] = {};
+        weightMap[t][s][type] = val;
+    });
 
-                init(window.SBI_Overview);
-                init(window.SBI_Class);
-                init(window.SBI_Subject);
-                init(window.SBI_Teacher);
-                init(window+window.SBI_Students);  // ← Ученики
-                init(window.SBI_Attendance);
+    const getWeight = (term, subj, type) => {
+        type = type.toUpperCase();
+        if (weightMap[term] && weightMap[term][subj] && weightMap[term][subj][type]) return weightMap[term][subj][type];
+        if (weightMap[term] && weightMap[term]['default'] && weightMap[term]['default'][type]) return weightMap[term]['default'][type];
+        if (weightMap['default'] && weightMap['default']['default'] && weightMap['default']['default'][type]) return weightMap['default']['default'][type];
+        
+        if (type === 'СОЧ') return 0.5;
+        if (type === 'СОР') return 0.25;
+        if (type === 'ФО') return 0.25;
+        return 0; 
+    };
 
-                SBI.log("Все дашборды успешно инициализированы");
-            }, 200);
+    const grouped = {}; 
+    
+    grades.forEach(row => {
+        const sid = row.student_id;
+        const sub = row.subject_id;
+        const term = row.term_id;
+        if(!sid || !sub || !term) return;
 
-        } catch (err) {
-            console.error(err);
-            SBI.setStatus("Ошибка: " + err.message);
+        const key = `${sid}|${sub}|${term}`;
+        if (!grouped[key]) {
+            grouped[key] = {
+                sid, sub, term, class_id: row.class_id,
+                scores: { 'ФО': [], 'СОР': [], 'СОЧ': [] }
+            };
+        }
+
+        const type = (row.work_type || "ФО").toUpperCase().trim();
+        
+        let pct = null;
+        if (row.percent != null) pct = parsePercent(row.percent);
+        else if (row.score != null && row.max_score != null) {
+            pct = (parseFloat(row.score) / parseFloat(row.max_score)) * 100;
+        }
+
+        if (pct != null) {
+            if (grouped[key].scores[type]) {
+                grouped[key].scores[type].push(pct);
+            } else {
+                 grouped[key].scores['ФО'].push(pct);
+            }
         }
     });
+
+    const finalRows = [];
+    
+    Object.values(grouped).forEach(group => {
+        const avgFO = SBI.mean(group.scores['ФО']);
+        const avgSOR = SBI.mean(group.scores['СОР']);
+        const avgSOCH = SBI.mean(group.scores['СОЧ']);
+
+        const wFO = getWeight(group.term, group.sub, 'ФО');
+        const wSOR = getWeight(group.term, group.sub, 'СОР');
+        const wSOCH = getWeight(group.term, group.sub, 'СОЧ');
+
+        const valFO = (avgFO || 0) * wFO;
+        const valSOR = (avgSOR || 0) * wSOR;
+        const valSOCH = (avgSOCH || 0) * wSOCH;
+
+        const totalPct = valFO + valSOR + valSOCH;
+        const grade5 = convertTo5Scale(totalPct, scaleRules);
+
+        finalRows.push({
+            student_id: group.sid,
+            subject_id: group.sub,
+            term: group.term, 
+            class_id: group.class_id,
+            final_percent: totalPct,
+            final_5scale: grade5
+        });
+    });
+
+    SBI.state.allRows = finalRows;
+    SBI.state.allTerms = SBI.unique(finalRows.map(r => r.term));
+    
+    console.log(`Data Processed: ${finalRows.length} rows, ${SBI.state.classes.length} classes, ${SBI.state.teachers.length} teachers.`);
 }
 
-SBI.log("main.js полностью загружен");
+document.addEventListener('DOMContentLoaded', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.style.display = 'none';
+    input.id = 'fileLoader';
+    input.addEventListener('change', (e) => SBI.loadData(e.target.files));
+    document.body.appendChild(input);
+
+    const header = document.querySelector('header div:last-child');
+    const oldBtn = document.getElementById('uploadBtn');
+    if(oldBtn) oldBtn.remove();
+
+    const btn = document.createElement('button');
+    btn.id = 'uploadBtn';
+    btn.innerText = '📂 Загрузить Excel';
+    btn.style.background = 'rgba(255,255,255,0.2)';
+    btn.style.border = '1px solid rgba(255,255,255,0.4)';
+    btn.onclick = () => input.click();
+    if(header) header.prepend(btn);
+});
+
+SBI.setStatus = (msg) => {
+    const el = document.getElementById('statusBar');
+    if(el) el.innerText = msg;
+    console.log(`[STATUS] ${msg}`);
+};

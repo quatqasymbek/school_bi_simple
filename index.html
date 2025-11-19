@@ -9,7 +9,7 @@
         :root { --primary: #123b71; --bg: #f4f7f6; --card-bg: #ffffff; --text: #333; --border: #dde2e5; }
         * { box-sizing: border-box; }
         body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; height: 100vh; }
-        header { background: var(--primary); color: #fff; padding: 0 20px; height:center; height: 60px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+        header { background: var(--primary); color: #fff; padding: 0 20px; height: 60px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
         header h1 { font-size: 1.2rem; margin: 0; font-weight: 600; }
         .tabs-bar { background: #1c4e8f; display: flex; overflow-x: auto; flex-shrink: 0; }
         .tab-link { padding: 12px 20px; color: #b0c4de; text-decoration: none; font-size: 0.9rem; border-bottom: 3px solid transparent; cursor: pointer; white-space: nowrap; }
@@ -21,7 +21,7 @@
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .grid-1 { display: grid; grid-template-columns: 1fr; gap: 20px; }
         .card { background: var(--card-bg); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 20px; }
-        .card h3 { margin-top: 0; font-size: 1rem; color: #555; margin-bottom: 15px; border-bottom: #eee; padding-bottom: 10px;}
+        .card h3 { margin-top: 0; font-size: 1rem; color: #555; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px;}
         .controls-row { display: flex; gap: 15px; margin-bottom: 15px; align-items: center; flex-wrap: wrap; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid var(--border); }
         select, button { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; }
         button { background: var(--primary); color: white; border: none; cursor: pointer; }
@@ -34,24 +34,20 @@
         table.data-table th, table.data-table td { padding: 10px 15px; text-align: center; border-bottom: 1px solid #eee; }
         table.data-table th { background: #f9f9f9; font-weight: 600; color: #555; text-align: left; }
         table.data-table td:first-child { text-align: left; font-weight: 500; }
-        .grade-bad { color: #e74c3c; font-weight: bold; }
-        .grade-good { color: #2ecc71; font-weight: bold; }
-        #statusBar { font-size: 12px; color: #888; margin-right: 15px; }
-        input[type="file"] { display: none; }
-        .upload-btn { background: #27ae60; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+        #statusBar { font-size: 12px; color: #888; margin-left: 15px; }
+        .upload-btn { background: #27ae60; padding: 10px 20px; border-radius: 4px; cursor: pointer; color:#fff; text-decoration:none; }
     </style>
 </head>
 <body>
 
 <header>
     <div style="display:flex; align-items:center; gap:10px;">
-        <span>📊</span>
-        <h1>Школьная Аналитика</h1>
+        <span>Школьная Аналитика</span>
     </div>
-    <div style="display:flex; align-items:center;">
+    <div style="display:flex; align-items:center; gap:15px;">
         <label class="upload-btn" for="excelUpload">Загрузить Excel</label>
         <input type="file" id="excelUpload" accept=".xlsx,.xls" />
-        <span id="statusBar">Ожидание...</span>
+        <span id="statusBar">Готово к работе</span>
     </div>
 </header>
 
@@ -61,35 +57,115 @@
     <div class="tab-link" data-page="subjects">Предметы</div>
     <div class="tab-link" data-page="teachers">Учителя</div>
     <div class="tab-link" data-page="attendance">Посещаемость</div>
-    <div class="tab-link" data-page="students">Ученики</div> <!-- ← НОВАЯ ВКЛАДКА -->
+    <div class="tab-link" data-page="students">Ученики</div>
 </div>
 
 <main>
-    <!-- OVERVIEW --> 
+    <!-- ==================== ОБЗОР ==================== -->
     <div id="overview" class="page active">
-        <!-- ... (оставляем без изменений, как было раньше) -->
         <div class="controls-row">
             <div><label>Четверть:</label><select id="ovTermSelect"></select></div>
-            <div><label>Метрика:</label><select id="ovMetricSelect"><option value="quality">Качество знаний (%)</option><option value="average">Средняя оценка (1-5)</option></select></div>
-            <div style="margin-left: auto;"><button id="btn-overview-refresh">Обновить</button></div>
+            <div><label>Метрика:</label><select id="ovMetricSelect">
+                <option value="quality">Качество знаний (%)</option>
+                <option value="average">Средняя оценка (1-5)</option>
+            </select></div>
+            <div style="margin-left:auto;"><button id="btn-overview-refresh">Обновить</button></div>
         </div>
+
         <div class="grid-2">
-            <div class="card" style="text-align: center;"><div class="kpi-value" id="ovKpiStudents">-</div><div class="kpi-label">Всего учащихся</div></div>
-            <div class="card" style="text-align: center;"><div class="kpi-value" id="ovKpiTeachers">-</div><div class="kpi-label">Всего учителей</div></div>
+            <div class="card" style="text-align:center;">
+                <div class="kpi-value" id="ovKpiStudents">-</div>
+                <div class="kpi-label">Всего учащихся</div>
+            </div>
+            <div class="card" style="text-align:center;">
+                <div class="kpi-value" id="ovKpiTeachers">-</div>
+                <div class="kpi-label">Всего учителей</div>
+            </div>
         </div>
+
         <div class="grid-2">
-            <div class="card"><h3>Успеваемость</h3><div id="chart-overview-donut" style="height: 350px;"></div></div>
-            <div class="card"><h3>По параллелям</h3><div id="chart-overview-grades" style="height: 350px;"></div></div>
+            <div class="card"><h3>Успеваемость</h3><div id="chart-overview-donut" style="height:350px;"></div></div>
+            <div class="card"><h3>По параллелям</h3><div id="chart-overview-grades" style="height:350px;"></div></div>
         </div>
+
         <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center;"><h3>🧠 AI Аналитик</h3><button id="btn-overview-ai">✨ Объяснить тренд</button></div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h3>AI Аналитик</h3>
+                <button id="btn-overview-ai">Объяснить тренд</button>
+            </div>
             <div id="overview-ai-output" class="ai-box">Загрузите данные для анализа.</div>
         </div>
     </div>
 
-    <!-- CLASSES, SUBJECTS, TEACHERS, ATTENDANCE остаются без изменений -->
+    <!-- ==================== КЛАССЫ ==================== -->
+    <div id="classes" class="page">
+        <!-- Здесь будет работать dashboard_class.js -->
+        <div class="card">
+            <h3>Общая таблица по классам</h3>
+            <div id="chart-class-avg" class="table-responsive"></div>
+        </div>
+        <div class="card">
+            <div class="controls-row">
+                <label>Четверть:</label><select id="classTermSelect"></select>
+                <label style="margin-left:15px;">Класс:</label><select id="classClassSelect"></select>
+            </div>
+            <div id="chart-class-dist" style="height:400px;"></div>
+        </div>
+    </div>
 
-    <!-- STUDENTS — НОВАЯ СТРАНИЦА -->
+    <!-- ==================== ПРЕДМЕТЫ ==================== -->
+    <div id="subjects" class="page">
+        <div class="card">
+            <div class="controls-row">
+                <label>Предмет:</label><select id="subjectSubjectSelect"></select>
+                <label>Четверть:</label><select id="subjectTermSelect"></select>
+            </div>
+            <div class="grid-2">
+                <div><div id="chart-subject-class" style="height:350px;"></div></div>
+                <div><div id="chart-subject-dist" style="height:350px;"></div></div>
+            </div>
+            <div class="grid-2" style="margin-top:20px;">
+                <div><div id="chart-subject-trend" style="height:350px;"></div></div>
+                <div><div id="chart-subject-heatmap" style="height:350px;"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== УЧИТЕЛЯ ==================== -->
+    <div id="teachers" class="page">
+        <div class="card">
+            <div class="controls-row">
+                <label>Учитель:</label><select id="teacherSelect"></select>
+                <label>Предмет:</label><select id="teacherSubjectSelect"></select>
+            </div>
+            <div class="grid-2">
+                <div><div id="chart-teacher-performance" style="height:400px;"></div></div>
+                <div><div id="chart-teacher-subjects" style="height:400px;"></div></div>
+            </div>
+            <div style="margin-top:20px;"><div id="chart-teacher-trend" style="height:350px;"></div></div>
+        </div>
+    </div>
+
+    <!-- ==================== ПОСЕЩАЕМОСТЬ ==================== -->
+    <div id="attendance" class="page">
+        <div class="card">
+            <h3>Сводка посещаемости по классам</h3>
+            <div class="controls-row"><label>Четверть:</label><select id="attTermSummary"></select></div>
+            <div id="attSummaryTableWrapper" class="table-responsive"></div>
+        </div>
+        <div class="card">
+            <h3>Детализация по ученикам</h3>
+            <div class="controls-row">
+                <label>Четверть:</label><select id="attTermDetail"></select>
+                <label>Класс:</label><select id="attClassDetail"></select>
+            </div>
+            <div id="attDetailTableWrapper" class="table-responsive"></div>
+        </div>
+    </div>
+
+    <!-- attendance -->
+
+    <!-- ==================== УЧЕНИКИ (НОВАЯ ВКЛАДКА) ==================== -->
     <div id="students" class="page">
         <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
@@ -103,7 +179,7 @@
             </div>
             <div class="table-responsive">
                 <div id="studentsTableWrapper">
-                    <p style="padding:30px; text-align:center; color:#999;">Выберите класс и четверть выше ↑</p>
+                    <p style="padding:30px;text-align:center;color:#999;">Выберите класс и четверть выше</p>
                 </div>
             </div>
         </div>
@@ -123,7 +199,7 @@
 <script src="dashboard_class.js"></script>
 <script src="dashboard_subject.js"></script>
 <script src="dashboard_teacher.js"></script>
-<script src="dashboard_students.js"></script> <!-- ← НОВЫЙ ФАЙЛ -->
+<script src="dashboard_students.js"></script>   <!-- наша новая вкладка -->
 
 <script>
     document.addEventListener('DOMContentLoaded', () => {
@@ -131,16 +207,22 @@
         const pages = document.querySelectorAll('.page');
         function activatePage(pageId) {
             pages.forEach(p => p.classList.remove('active'));
-            document.getElementById(pageId).classList.add('active');
+            const page = document.getElementById(pageId);
+            if (page) page.classList.add('active');
+
             links.forEach(l => l.classList.remove('active'));
             document.querySelector(`.tab-link[data-page="${pageId}"]`).classList.add('active');
+
             setTimeout(() => {
                 if (typeof Plotly !== 'undefined') {
                     document.querySelectorAll('.js-plotly-plot').forEach(el => Plotly.Plots.resize(el));
                 }
-            }, 100);
+            }, 150);
         }
-        links.forEach(link => link.addEventListener('click', () => activatePage(link.dataset.page)));
+        links.forEach(link => link.addEventListener('click', e => {
+            e.preventDefault();
+            activatePage(link.dataset.page);
+        }));
     });
 </script>
 </body>

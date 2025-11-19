@@ -88,16 +88,14 @@ SBI.loadData = function(files) {
         
         let baseName = fileName;
         
-        // **********************************************
         // * ИСПРАВЛЕНИЕ ОШИБКИ: Безопасное извлечение имени листа *
-        // **********************************************
         if (baseName.includes(' - ')) {
             baseName = baseName.split(' - ')[1];
         } else if (baseName.startsWith('example_excel.xlsx')) {
              baseName = baseName.replace('example_excel.xlsx', '').trim();
         }
         
-        // Очистка и преобразование в ключ состояния (используем baseName, а не fileName)
+        // Очистка и преобразование в ключ состояния
         let key = baseName.replace('.csv', '').replace('«', '').replace('»', '').replace(/[\s\W]+/g, '_').toUpperCase();
 
         if (key.includes('УЧАЩИЕСЯ')) key = 'STUDENTS';
@@ -238,7 +236,6 @@ SBI.processData = function(rawData) {
     if (window.SBI_Class && SBI_Class.onDataLoaded) SBI_Class.onDataLoaded();
     if (window.SBI_Teacher && SBI_Teacher.onDataLoaded) SBI_Teacher.onDataLoaded();
     if (window.SBI_Attendance && SBI_Attendance.onDataLoaded) SBI_Attendance.onDataLoaded();
-    // ВЫЗОВ НОВОГО МОДУЛЯ:
     if (window.SBI_Students && SBI_Students.onDataLoaded) SBI_Students.onDataLoaded(); 
 };
 
@@ -304,7 +301,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Установка страницы по умолчанию
     let defaultPage = 'overview-page-content';
     if (document.getElementById('students-page-content')) {
-        // Устанавливаем новую страницу как активную при первой загрузке, если она существует
         defaultPage = 'students-page-content';
     }
 

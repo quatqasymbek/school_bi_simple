@@ -110,8 +110,75 @@
         </div>
     </div>
 
-    <div id="subjects" class="page"><div class="card"><h3>Анализ по предметам</h3><div class="controls-row"><select id="subjectSubjectSelect"></select><select id="subjectTermSelect"></select></div><div id="chart-subject-heatmap" style="height:400px;"></div></div></div>
-    <div id="teachers" class="page"><div class="card"><h3>Анализ по учителям</h3><p>В разработке</p></div></div>
+    <!-- SUBJECTS -->
+    <div id="subjects" class="page">
+        <div class="card">
+            <h3>Анализ по предметам</h3>
+            <div class="controls-row">
+                <label>Предмет:</label><select id="subjectSubjectSelect"></select>
+                <label>Четверть:</label><select id="subjectTermSelect"></select>
+            </div>
+            <div id="chart-subject-heatmap" style="height:400px;"></div>
+        </div>
+    </div>
+
+    <!-- TEACHERS (NEW) -->
+    <div id="teachers" class="page">
+        <!-- Block 1: Qualifications Donut -->
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h3>Квалификация педагогического состава</h3>
+                <div class="controls-row" style="margin:0; padding:5px; border:none;">
+                    <label>Четверть:</label><select id="teachQualTermSelect"></select>
+                </div>
+            </div>
+            <div id="chart-teacher-qual" style="height:350px;"></div>
+        </div>
+
+        <!-- Block 2: Matrix Table -->
+        <div class="card">
+             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3>Мониторинг успеваемости по учителям</h3>
+                <div class="controls-row" style="margin:0; padding:5px; border:none;">
+                    <label>Метрика:</label>
+                    <select id="teachTableMetricSelect">
+                        <option value="quality">Качество знаний (%)</option>
+                        <option value="average">Средняя оценка</option>
+                    </select>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ФИО Учителя</th>
+                            <th>Предмет(ы)</th>
+                            <th>Квалификация</th>
+                            <!-- JS will assume 4 terms max or dynamically add -->
+                            <th>2024-T1</th><th>2024-T2</th><th>2025-T3</th><th>2025-T4</th>
+                        </tr>
+                    </thead>
+                    <tbody id="teachTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Block 3: Individual Pie -->
+        <div class="grid-1">
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+                    <h3>Персональный анализ результатов</h3>
+                    <div class="controls-row" style="margin:0; padding:5px; border:none;">
+                        <label>Учитель:</label><select id="teachPerfTeacherSelect"></select>
+                        <label style="margin-left:10px;">Четверть:</label><select id="teachPerfTermSelect"></select>
+                    </div>
+                </div>
+                <div id="chart-teacher-perf" style="height:400px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ATTENDANCE -->
     <div id="attendance" class="page">
         <div class="card"><h3>Посещаемость (Сводка)</h3><div class="controls-row"><select id="attTermSummary"></select></div><div id="attSummaryTableWrapper" class="table-responsive"></div></div>
         <div class="card"><h3>Детализация по классам</h3><div class="controls-row"><select id="attTermDetail"></select><select id="attClassDetail"></select></div><div id="attDetailTableWrapper" class="table-responsive"></div></div>
@@ -128,6 +195,7 @@
 <script src="attendance.js"></script>
 <script src="dashboard_class.js"></script>
 <script src="dashboard_subject.js"></script>
+<script src="dashboard_teacher.js"></script>
 
 <script>
     document.addEventListener('DOMContentLoaded', () => {

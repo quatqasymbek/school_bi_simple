@@ -1,14 +1,15 @@
 // main.js - Data Loading and Processing Core
 console.log("MAIN.JS: Initializing...");
 
+// ==========================================\
+// ГЛОБАЛЬНЫЙ ОБЪЕКТ И СОСТОЯНИЕ
+// ==========================================\
 window.SBI = window.SBI || {};
 const SBI = window.SBI;
 
-// ==========================================
-// 1. STATE MANAGEMENT
-// ==========================================
 SBI.state = {
-    allRows: [], 
+    allRows: [], // Итоговые оценки (по студенту/предмету/четверти)
+    allTerms: [], // Список всех четвертей
     students: [],
     teachers: [], 
     teacherQuals: [], 
@@ -17,19 +18,21 @@ SBI.state = {
     subjects: [],
     terms: [],
     attendanceRows: [],
-    weights: {}, 
-    gradingScale: [] 
+    weights: {}, // Веса оценок
+    gradingScale: [] // Шкала перевода в 5-балльную систему
 };
 
-// ==========================================
-// 2. DATA PROCESSING HELPERS
-// ==========================================
+// ==========================================\
+// 2. DATA PROCESSING HELPERS (Из utils.js)
+// NOTE: Предполагаем, что utils.js подключен и содержит mean, unique, groupBy.
+// ==========================================\
 
 function parsePercent(val) {
     if (val == null || val === "") return null;
     let s = String(val).replace(",", ".").replace("%", "").trim();
     let n = parseFloat(s);
     if (isNaN(n)) return null;
+    // Если число меньше или равно 1, считаем его долей и переводим в %
     if (n <= 1.0 && n > 0) return n * 100; 
     return n;
 }
@@ -37,206 +40,215 @@ function parsePercent(val) {
 function convertTo5Scale(score, scaleRules) {
     if (score == null) return null;
     if (!scaleRules || scaleRules.length === 0) {
+        // Дефолтная шкала (если файл ШКАЛА_5Б.csv не загружен или пуст)
         if (score >= 85) return 5;
         if (score >= 70) return 4;
         if (score >= 55) return 3;
         if (score >= 0) return 2;
-        return 0;
+        return null;
     }
+    // Используем загруженную шкалу
     for (let rule of scaleRules) {
-        if (score >= rule.min && score <= rule.max) {
-            return rule.grade;
+        if (score >= rule.pct_min && score <= rule.pct_max) {
+            return rule.grade_5pt;
         }
     }
-    return 2; 
+    return null;
 }
 
-// ==========================================
-// 3. LOAD & PROCESS EXCEL FILES
-// ==========================================
+// ==========================================\
+// 3. DATA LOADING AND PARSING
+// ==========================================\
 
-SBI.loadData = async function(files) {
-    SBI.setStatus("Чтение файлов...");
-    const state = SBI.state;
-    
-    // Reset state
-    state.allRows = [];
-    state.students = [];
-    state.teachers = [];
-    state.teacherQuals = [];
-    state.assignments = [];
-    state.classes = [];
-    state.subjects = [];
-    state.terms = [];
-    state.attendanceRows = [];
+/**
+ * Loads and parses the uploaded CSV files.
+ * @param {FileList} files - List of files uploaded by the user.
+ */
+SBI.loadData = function(files) {
+    if (files.length === 0) return;
 
-    let rawGrades = [];
-    let rawWeights = [];
-    let rawScale = [];
+    // Сброс состояния
+    Object.keys(SBI.state).forEach(key => {
+        if (Array.isArray(SBI.state[key])) {
+            SBI.state[key] = [];
+        } else if (typeof SBI.state[key] === 'object' && key !== 'weights') {
+            SBI.state[key] = {};
+        }
+    });
+    SBI.state.allRows = [];
 
-    for (let file of files) {
-        try {
-            const data = await file.arrayBuffer();
-            const workbook = XLSX.read(data);
-            const fileName = file.name.toUpperCase();
+    let fileCount = files.length;
+    let filesProcessed = 0;
+    const allData = {};
 
-            // Helper: Try to find data by Sheet Name first, then by File Name
-            const getData = (keyword) => {
-                const key = keyword.toUpperCase();
-                
-                // 1. Try Sheet Name
-                const sn = workbook.SheetNames.find(n => n.toUpperCase().includes(key));
-                if (sn) return XLSX.utils.sheet_to_json(workbook.Sheets[sn]);
+    function fileLoaded(fileName, data) {
+        filesProcessed++;
+        
+        // Преобразование имени файла в ключ состояния (убираем префикс и .csv)
+        let key = fileName.split(' - ')[1].replace('.csv', '').replace('example_excel.xlsx ', '').replace('«', '').replace('»', '').replace(/[\s\W]+/g, '_').toUpperCase();
+        
+        if (key.includes('УЧАЩИЕСЯ')) key = 'STUDENTS';
+        else if (key.includes('УЧИТЕЛЯ')) key = 'TEACHERS';
+        else if (key.includes('КЛАССЫ')) key = 'CLASSES';
+        else if (key.includes('ПРЕДМЕТЫ')) key = 'SUBJECTS';
+        else if (key.includes('ЧЕТВЕРТИ')) key = 'TERMS';
+        else if (key.includes('ОЦЕНКИ')) key = 'GRADES';
+        else if (key.includes('ВЕСА_ОЦЕНОК')) key = 'WEIGHTS';
+        else if (key.includes('ШКАЛА_5Б')) key = 'GRADING_SCALE';
+        else if (key.includes('ПОСЕЩАЕМОСТЬ')) key = 'ATTENDANCE';
+        else if (key.includes('СОСТАВ_КЛАССА')) key = 'CLASS_ENROLLMENT';
+        else if (key.includes('НАЗНАЧЕНИЯ_ПРЕПОД')) key = 'ASSIGNMENTS';
+        else if (key.includes('TEACHER_QUALS')) key = 'TEACHER_QUALS';
 
-                // 2. Try File Name (if checking a CSV)
-                if (fileName.includes(key)) {
-                    // Return first sheet content
-                    const firstSheet = workbook.SheetNames[0];
-                    return XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet]);
-                }
-                return [];
-            };
+        allData[key] = data;
 
-            // Accumulate Data
-            state.students = state.students.concat(getData("УЧАЩИЕСЯ"));
-            state.teachers = state.teachers.concat(getData("УЧИТЕЛЯ"));
-            state.classes = state.classes.concat(getData("КЛАССЫ"));
-            state.subjects = state.subjects.concat(getData("ПРЕДМЕТЫ"));
-            state.terms = state.terms.concat(getData("ЧЕТВЕРТИ"));
-            
-            // New Sheets for Teachers Page
-            // "НАЗНАЧЕНИЯ" covers "НАЗНАЧЕНИЯ_ПРЕПОД"
-            state.assignments = state.assignments.concat(getData("НАЗНАЧЕНИЯ")); 
-            // "QUALS" covers "TEACHER_QUALS"
-            state.teacherQuals = state.teacherQuals.concat(getData("QUALS")); 
-            
-            rawGrades = rawGrades.concat(getData("ОЦЕНКИ"));
-            
-            // Weights sometimes named "ВЕСА" or "ВЕСА_ОЦЕНОК"
-            rawWeights = rawWeights.concat(getData("ВЕСА")); 
-            
-            // Scale sometimes "ШКАЛА" or "ШКАЛА_5Б"
-            rawScale = rawScale.concat(getData("ШКАЛА")); 
-            
-            state.attendanceRows = state.attendanceRows.concat(getData("ПОСЕЩАЕМОСТЬ"));
-
-        } catch (e) {
-            console.error("Error reading file:", file.name, e);
+        if (filesProcessed === fileCount) {
+            console.log("All files loaded. Starting processing.");
+            SBI.processData(allData);
         }
     }
 
-    SBI.setStatus("Обработка оценок...");
-    processAnalytics(rawGrades, rawWeights, rawScale);
-    
-    SBI.setStatus("Готово. Обновление дашбордов...");
-    
-    // Notify Dashboards
-    if (window.SBI_Overview && window.SBI_Overview.update) window.SBI_Overview.update();
-    if (window.SBI_Class && window.SBI_Class.onDataLoaded) window.SBI_Class.onDataLoaded();
-    if (window.SBI_Attendance && window.SBI_Attendance.onDataLoaded) window.SBI_Attendance.onDataLoaded();
-    if (window.SBI_Subject && window.SBI_Subject.onDataLoaded) window.SBI_Subject.onDataLoaded();
-    if (window.SBI_Teacher && window.SBI_Teacher.onDataLoaded) window.SBI_Teacher.onDataLoaded();
+    // Использование PapaParse для чтения CSV
+    Array.from(files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const result = Papa.parse(event.target.result, {
+                header: true,
+                skipEmptyLines: true,
+                dynamicTyping: true
+            });
+            fileLoaded(file.name, result.data);
+        };
+        reader.readAsText(file);
+    });
 };
 
-function processAnalytics(grades, weightsRaw, scaleRaw) {
-    const scaleRules = scaleRaw.map(r => ({
-        grade: parseInt(r.grade_5pt),
-        min: parseFloat(r.pct_min),
-        max: parseFloat(r.pct_max)
-    })).sort((a,b) => b.min - a.min); 
+// ==========================================\
+// 4. DATA TRANSFORMATION AND CALCULATION
+// ==========================================\
 
-    const weightMap = {};
-    weightsRaw.forEach(w => {
-        const t = w.term_id || 'default';
-        const s = w.subject_id || 'default';
-        const type = (w.work_type || "").toUpperCase().trim();
-        const val = parseFloat(w.weight_pct) / 100.0;
-
-        if (!weightMap[t]) weightMap[t] = {};
-        if (!weightMap[t][s]) weightMap[t][s] = {};
-        weightMap[t][s][type] = val;
-    });
-
-    const getWeight = (term, subj, type) => {
-        type = type.toUpperCase();
-        if (weightMap[term] && weightMap[term][subj] && weightMap[term][subj][type]) return weightMap[term][subj][type];
-        if (weightMap[term] && weightMap[term]['default'] && weightMap[term]['default'][type]) return weightMap[term]['default'][type];
-        if (weightMap['default'] && weightMap['default']['default'] && weightMap['default']['default'][type]) return weightMap['default']['default'][type];
-        
-        if (type === 'СОЧ') return 0.5;
-        if (type === 'СОР') return 0.25;
-        if (type === 'ФО') return 0.25;
-        return 0; 
-    };
-
-    const grouped = {}; 
+/**
+ * Processes raw data to calculate final term grades.
+ * @param {object} rawData - Parsed data from all CSV files.
+ */
+SBI.processData = function(rawData) {
+    console.log("Starting data processing...");
     
-    grades.forEach(row => {
-        const sid = row.student_id;
-        const sub = row.subject_id;
-        const term = row.term_id;
-        if(!sid || !sub || !term) return;
+    // --- 1. Load Reference Data ---
+    SBI.state.students = rawData.STUDENTS || [];
+    SBI.state.teachers = rawData.TEACHERS || [];
+    SBI.state.classes = rawData.CLASSES || [];
+    SBI.state.subjects = rawData.SUBJECTS || [];
+    SBI.state.terms = rawData.TERMS || [];
+    SBI.state.attendanceRows = rawData.ATTENDANCE || [];
+    SBI.state.teacherQuals = rawData.TEACHER_QUALS || [];
+    SBI.state.assignments = rawData.ASSIGNMENTS || [];
+    SBI.state.gradingScale = (rawData.GRADING_SCALE || []).map(r => ({
+        grade_5pt: r.grade_5pt,
+        min: r.pct_min, // Используем более понятные имена
+        max: r.pct_max
+    }));
 
-        const key = `${sid}|${sub}|${term}`;
-        if (!grouped[key]) {
-            grouped[key] = {
-                sid, sub, term, class_id: row.class_id,
-                scores: { 'ФО': [], 'СОР': [], 'СОЧ': [] }
-            };
-        }
-
-        const type = (row.work_type || "ФО").toUpperCase().trim();
-        
-        let pct = null;
-        if (row.percent != null) pct = parsePercent(row.percent);
-        else if (row.score != null && row.max_score != null) {
-            pct = (parseFloat(row.score) / parseFloat(row.max_score)) * 100;
-        }
-
-        if (pct != null) {
-            if (grouped[key].scores[type]) {
-                grouped[key].scores[type].push(pct);
-            } else {
-                 grouped[key].scores['ФО'].push(pct);
-            }
+    // --- 2. Process Weights ---
+    const rawWeights = rawData.WEIGHTS || [];
+    rawWeights.forEach(row => {
+        // Предполагаем, что нам нужны только веса по типу работы (ФО, СОР, СОЧ)
+        if (row.scope === 'overall' && row.work_type) {
+            SBI.state.weights[row.work_type] = parsePercent(row.weight_pct) / 100;
         }
     });
 
+    const grades = rawData.GRADES || [];
+    const scaleRules = SBI.state.gradingScale;
+    const weights = SBI.state.weights;
     const finalRows = [];
+
+    // --- 3. Group Raw Grades ---
+    // Группируем по: Ученик ID, Предмет ID, Четверть (для расчета итоговой)
+    const groupedByFinalGradeKey = SBI.groupBy(grades, r => `${r.student_id}|${r.subject_id}|${r.term_id}|${r.class_id}`);
     
-    Object.values(grouped).forEach(group => {
-        const avgFO = SBI.mean(group.scores['ФО']);
-        const avgSOR = SBI.mean(group.scores['СОР']);
-        const avgSOCH = SBI.mean(group.scores['СОЧ']);
+    // --- 4. Calculate Final Term Grades ---
+    Object.keys(groupedByFinalGradeKey).forEach(key => {
+        const group = groupedByFinalGradeKey[key];
+        // Берем данные из первой строки группы
+        const firstRow = group[0];
+        const groupKeyParts = key.split('|');
+        
+        const calculationGroup = {
+            sid: groupKeyParts[0],
+            sub: groupKeyParts[1],
+            term: groupKeyParts[2],
+            class_id: groupKeyParts[3],
+            // Инициализируем сумму взвешенных процентов
+            weightedSum: 0, 
+            totalWeight: 0
+        };
 
-        const wFO = getWeight(group.term, group.sub, 'ФО');
-        const wSOR = getWeight(group.term, group.sub, 'СОР');
-        const wSOCH = getWeight(group.term, group.sub, 'СОЧ');
+        // Группируем оценки внутри четверти по типу работы (ФО, СОР, СОЧ)
+        const gradesByWorkType = SBI.groupBy(group, r => r.work_type);
 
-        const valFO = (avgFO || 0) * wFO;
-        const valSOR = (avgSOR || 0) * wSOR;
-        const valSOCH = (avgSOCH || 0) * wSOCH;
+        Object.keys(gradesByWorkType).forEach(workType => {
+            const workTypeGrades = gradesByWorkType[workType];
+            const weight = weights[workType] || 0; // Получаем вес для данного типа работы
+            
+            if (weight > 0) {
+                // Берем все оценки (в процентах) для данного типа работы
+                const percents = workTypeGrades.map(r => parsePercent(r.percent)).filter(n => n != null);
+                
+                if (percents.length > 0) {
+                    // Рассчитываем средний процент для данного типа работы
+                    const avgPercent = SBI.mean(percents); 
+                    
+                    // Добавляем взвешенный результат к общей сумме
+                    calculationGroup.weightedSum += avgPercent * weight;
+                    calculationGroup.totalWeight += weight;
+                }
+            }
+        });
+        
+        let totalPct = null;
+        if (calculationGroup.totalWeight > 0) {
+            // Итоговый процент = Взвешенная сумма / Общий вес (должен быть 1.0, но может отличаться)
+            totalPct = calculationGroup.weightedSum / calculationGroup.totalWeight;
+        }
 
-        const totalPct = valFO + valSOR + valSOCH;
+        // Переводим итоговый процент в 5-балльную шкалу
         const grade5 = convertTo5Scale(totalPct, scaleRules);
 
+        // Добавляем итоговую строку
         finalRows.push({
-            student_id: group.sid,
-            subject_id: group.sub,
-            term: group.term, 
-            class_id: group.class_id,
+            student_id: calculationGroup.sid,
+            subject_id: calculationGroup.sub,
+            term: calculationGroup.term, 
+            class_id: calculationGroup.class_id,
             final_percent: totalPct,
             final_5scale: grade5
         });
     });
 
     SBI.state.allRows = finalRows;
+    // Сбор уникальных четвертей для фильтров
     SBI.state.allTerms = SBI.unique(finalRows.map(r => r.term));
     
     console.log(`Data Processed: ${finalRows.length} rows, ${SBI.state.classes.length} classes, ${SBI.state.teachers.length} teachers.`);
-}
+
+
+    // --- 5. NOTIFY MODULES ---
+    // Вызов onDataLoaded() для всех дашбордов, включая новый "Ученики"
+    if (window.SBI_Overview && SBI_Overview.onDataLoaded) SBI_Overview.onDataLoaded();
+    if (window.SBI_Class && SBI_Class.onDataLoaded) SBI_Class.onDataLoaded();
+    if (window.SBI_Teacher && SBI_Teacher.onDataLoaded) SBI_Teacher.onDataLoaded();
+    if (window.SBI_Attendance && SBI_Attendance.onDataLoaded) SBI_Attendance.onDataLoaded();
+    // НОВЫЙ МОДУЛЬ:
+    if (window.SBI_Students && SBI_Students.onDataLoaded) SBI_Students.onDataLoaded(); 
+};
+
+// ==========================================\
+// 5. INITIALIZATION
+// ==========================================\
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 1. Настройка загрузчика файлов
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
@@ -254,12 +266,45 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.innerText = '📂 Загрузить Excel';
     btn.style.background = 'rgba(255,255,255,0.2)';
     btn.style.border = '1px solid rgba(255,255,255,0.4)';
-    btn.onclick = () => input.click();
-    if(header) header.prepend(btn);
-});
+    btn.style.borderRadius = '5px';
+    btn.style.padding = '8px 15px';
+    btn.style.cursor = 'pointer';
+    btn.style.color = '#fff';
+    btn.style.marginLeft = '10px';
+    btn.style.transition = 'background 0.3s';
+    btn.onclick = () => document.getElementById('fileLoader').click();
+    
+    if (header) {
+        header.appendChild(btn);
+    }
+    
+    // 2. Настройка навигации
+    const navButtons = document.querySelectorAll('.nav-button');
+    const pages = document.querySelectorAll('.page-content');
+    
+    function showPage(pageId) {
+        pages.forEach(page => {
+            page.style.display = page.id === pageId ? 'block' : 'none';
+        });
+        navButtons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.page === pageId);
+        });
+        // При переключении страницы, если дашборд имеет функцию update, вызываем ее
+        const pageModule = `SBI_${pageId.replace('-page-content', '').split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('')}`;
+        if (window[pageModule] && window[pageModule].update) {
+            window[pageModule].update();
+        }
+    }
 
-SBI.setStatus = (msg) => {
-    const el = document.getElementById('statusBar');
-    if(el) el.innerText = msg;
-    console.log(`[STATUS] ${msg}`);
-};
+    navButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            showPage(btn.dataset.page);
+        });
+    });
+
+    // Показать домашнюю страницу при загрузке (или 'overview-page-content' если он существует)
+    const defaultPage = document.getElementById('students-page-content') ? 'students-page-content' : 'overview-page-content';
+    if(document.getElementById(defaultPage)) {
+        showPage(defaultPage);
+    }
+});

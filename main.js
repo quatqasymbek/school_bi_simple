@@ -1,261 +1,382 @@
-// main.js - Data Loading and Processing Core
-console.log("MAIN.JS: Initializing...");
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <title>Школьная Аналитическая Платформа</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <!-- XLSX -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
 
-window.SBI = window.SBI || {};
-const SBI = window.SBI;
-
-// ==========================================
-// 1. STATE MANAGEMENT
-// ==========================================
-SBI.state = {
-    allRows: [], // The processed analytic rows (Student x Subject x Term)
-    students: [],
-    teachers: [],
-    classes: [],
-    subjects: [],
-    terms: [],
-    weights: {}, // Weights map
-    gradingScale: [] // 5-point scale rules
-};
-
-// ==========================================
-// 2. DATA PROCESSING HELPERS
-// ==========================================
-
-// Parse "100" or "100%" or "0.85" to a float 0-100
-function parsePercent(val) {
-    if (val == null || val === "") return null;
-    let s = String(val).replace(",", ".").replace("%", "").trim();
-    let n = parseFloat(s);
-    if (isNaN(n)) return null;
-    // If small decimal like 0.85, treat as 85% unless it's clearly a low score out of 100
-    // But context matters. Usually grades are 0-100.
-    // If the input seems to be a ratio (0-1), convert to 0-100.
-    if (n <= 1.0 && n > 0) return n * 100; 
-    return n;
-}
-
-// Convert 0-100 score to 5-point scale based on rules
-function convertTo5Scale(score, scaleRules) {
-    if (score == null) return null;
-    // Default rules if CSV missing
-    if (!scaleRules || scaleRules.length === 0) {
-        if (score >= 85) return 5;
-        if (score >= 70) return 4;
-        if (score >= 55) return 3;
-        if (score >= 0) return 2;
-        return 0;
-    }
-
-    // Find matching rule
-    // Assuming rules have min_pct and max_pct
-    for (let rule of scaleRules) {
-        if (score >= rule.min && score <= rule.max) {
-            return rule.grade;
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --secondary: #34495e;
+            --accent: #3498db;
+            --bg: #f5f7fa;
+            --text: #2c3e50;
+            --white: #ffffff;
+            --success: #27ae60;
+            --warning: #f39c12;
+            --danger: #c0392b;
+            --gray: #95a5a6;
         }
-    }
-    return 2; // Default fallback
-}
 
-// ==========================================
-// 3. LOAD & PROCESS EXCEL FILES
-// ==========================================
-
-SBI.loadData = async function(files) {
-    SBI.setStatus("Чтение файлов...");
-    const state = SBI.state;
-    
-    // Temporary raw storage
-    let rawGrades = [];
-    let rawWeights = [];
-    let rawScale = [];
-
-    for (let file of files) {
-        try {
-            const data = await file.arrayBuffer();
-            const workbook = XLSX.read(data);
-            
-            // Helper to get sheet data
-            const getSheet = (name) => {
-                const sn = workbook.SheetNames.find(n => n.toUpperCase().includes(name.toUpperCase()));
-                if (!sn) return [];
-                return XLSX.utils.sheet_to_json(workbook.Sheets[sn]);
-            };
-
-            // Accumulate Data
-            state.students = state.students.concat(getSheet("УЧАЩИЕСЯ"));
-            state.teachers = state.teachers.concat(getSheet("УЧИТЕЛЯ"));
-            state.classes = state.classes.concat(getSheet("КЛАССЫ"));
-            state.subjects = state.subjects.concat(getSheet("ПРЕДМЕТЫ"));
-            state.terms = state.terms.concat(getSheet("ЧЕТВЕРТИ"));
-            
-            rawGrades = rawGrades.concat(getSheet("ОЦЕНКИ"));
-            rawWeights = rawWeights.concat(getSheet("ВЕСА")); // ВЕСА_ОЦЕНОК
-            rawScale = rawScale.concat(getSheet("ШКАЛА")); // ШКАЛА_5Б
-
-            // Attendance handled separately usually, but let's ensure we have it
-            state.attendanceRows = (state.attendanceRows || []).concat(getSheet("ПОСЕЩАЕМОСТЬ"));
-
-        } catch (e) {
-            console.error("Error reading file:", file.name, e);
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
-    }
 
-    SBI.setStatus("Обработка оценок...");
-    processAnalytics(rawGrades, rawWeights, rawScale);
-    
-    SBI.setStatus("Готово.");
-    
-    // Notify Dashboards
-    if (window.SBI_Overview && window.SBI_Overview.update) window.SBI_Overview.update();
-    if (window.SBI_Class && window.SBI_Class.onDataLoaded) window.SBI_Class.onDataLoaded();
-    if (window.SBI_Attendance && window.SBI_Attendance.onDataLoaded) window.SBI_Attendance.onDataLoaded();
-};
-
-function processAnalytics(grades, weightsRaw, scaleRaw) {
-    // 1. Parse Scale
-    const scaleRules = scaleRaw.map(r => ({
-        grade: parseInt(r.grade_5pt),
-        min: parseFloat(r.pct_min),
-        max: parseFloat(r.pct_max)
-    })).sort((a,b) => b.min - a.min); // Sort desc (5, 4, 3...)
-
-    // 2. Parse Weights into a Map: Term -> Subject -> WorkType -> Weight
-    // Map structure: weights[termId || 'default'][subjectId || 'default'][workType] = 0.25
-    const weightMap = {};
-    weightsRaw.forEach(w => {
-        const t = w.term_id || 'default';
-        const s = w.subject_id || 'default';
-        const type = (w.work_type || "").toUpperCase().trim();
-        const val = parseFloat(w.weight_pct) / 100.0;
-
-        if (!weightMap[t]) weightMap[t] = {};
-        if (!weightMap[t][s]) weightMap[t][s] = {};
-        weightMap[t][s][type] = val;
-    });
-
-    // Helper to get weight
-    const getWeight = (term, subj, type) => {
-        type = type.toUpperCase();
-        // Try specific Term+Subj
-        if (weightMap[term] && weightMap[term][subj] && weightMap[term][subj][type]) return weightMap[term][subj][type];
-        // Try specific Term, default Subj
-        if (weightMap[term] && weightMap[term]['default'] && weightMap[term]['default'][type]) return weightMap[term]['default'][type];
-        // Try default Term, default Subj (Global defaults)
-        if (weightMap['default'] && weightMap['default']['default'] && weightMap['default']['default'][type]) return weightMap['default']['default'][type];
+        /* Header */
+        header {
+            background: var(--primary);
+            color: var(--white);
+            padding: 0 20px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
         
-        // Fallbacks if CSV missing
-        if (type === 'СОЧ') return 0.5;
-        if (type === 'СОР') return 0.25;
-        if (type === 'ФО') return 0.25;
-        return 0; 
-    };
+        header h1 { margin: 0; font-size: 1.4rem; font-weight: 600; }
+        header .controls { display: flex; gap: 10px; }
 
-    // 3. Aggregate Grades by Student-Subject-Term
-    const grouped = {}; // Key: "student|subject|term"
-    
-    grades.forEach(row => {
-        const sid = row.student_id;
-        const sub = row.subject_id;
-        const term = row.term_id;
-        if(!sid || !sub || !term) return;
-
-        const key = `${sid}|${sub}|${term}`;
-        if (!grouped[key]) {
-            grouped[key] = {
-                sid, sub, term, class_id: row.class_id,
-                scores: { 'ФО': [], 'СОР': [], 'СОЧ': [] }
-            };
+        /* Tabs */
+        .tabs {
+            background: var(--white);
+            padding: 0 20px;
+            display: flex;
+            gap: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+        .tab-btn {
+            padding: 15px 20px;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+            font-size: 1rem;
+            color: var(--text);
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover { background: #f8f9fa; }
+        .tab-btn.active {
+            border-bottom-color: var(--accent);
+            color: var(--accent);
         }
 
-        const type = (row.work_type || "ФО").toUpperCase().trim();
-        
-        // Calculate percentage for this specific assessment
-        let pct = null;
-        if (row.percent != null) pct = parsePercent(row.percent);
-        else if (row.score != null && row.max_score != null) {
-            pct = (parseFloat(row.score) / parseFloat(row.max_score)) * 100;
+        /* Main Content */
+        main {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            position: relative;
         }
 
-        if (pct != null) {
-            if (grouped[key].scores[type]) {
-                grouped[key].scores[type].push(pct);
-            } else {
-                 // Handle unexpected types
-                 grouped[key].scores['ФО'].push(pct);
-            }
+        .page { display: none; animation: fadeIn 0.3s; }
+        .page.active { display: block; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-    });
 
-    // 4. Calculate Final Grades
-    const finalRows = [];
-    
-    Object.values(grouped).forEach(group => {
-        // Average per category
-        const avgFO = SBI.mean(group.scores['ФО']);
-        const avgSOR = SBI.mean(group.scores['СОР']);
-        const avgSOCH = SBI.mean(group.scores['СОЧ']);
+        /* Common UI Elements */
+        .card {
+            background: var(--white);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .card h2 { margin-top: 0; font-size: 1.2rem; color: var(--secondary); border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
 
-        // Get Weights
-        const wFO = getWeight(group.term, group.sub, 'ФО');
-        const wSOR = getWeight(group.term, group.sub, 'СОР');
-        const wSOCH = getWeight(group.term, group.sub, 'СОЧ');
+        .filters {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: center;
+            background: var(--white);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.95rem;
+            outline: none;
+            min-width: 150px;
+        }
+        select:focus { border-color: var(--accent); }
 
-        // Total Grade Calculation
-        // Logic: If a category is missing (e.g. student missed SOCH), what do we do?
-        // Usually strictly 0. But for BI, if score is null, treat as 0.
+        button {
+            padding: 8px 16px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.95rem;
+        }
+        button:hover { opacity: 0.9; }
+        button.secondary { background: var(--gray); }
+
+        /* KPIs */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .kpi-card {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .kpi-value { font-size: 2.5rem; font-weight: bold; }
+        .kpi-label { font-size: 0.9rem; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* Grids */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+
+        /* Tables */
+        .table-container { overflow-x: auto; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        th, td {
+            padding: 10px 15px;
+            border: 1px solid #eee;
+            text-align: center;
+        }
+        th { background: #f8f9fa; font-weight: 600; color: var(--secondary); }
+        td { color: #555; }
+        tr:hover td { background: #f1f1f1; }
+
+        /* AI Section */
+        .ai-box {
+            background: #f0f7ff;
+            border: 1px solid #cce5ff;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        .ai-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--accent); font-weight: bold; }
+
+        /* Specific Colors for Grades */
+        .grade-5 { color: #27ae60; font-weight: bold; }
+        .grade-4 { color: #2980b9; font-weight: bold; }
+        .grade-3 { color: #f39c12; font-weight: bold; }
+        .grade-2 { color: #c0392b; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>📊 BI Platform</h1>
+    <div class="controls">
+        <button onclick="document.getElementById('fileLoader').click()"><i class="fas fa-upload"></i> Загрузить Excel</button>
+    </div>
+</header>
+
+<div class="tabs">
+    <button class="tab-btn active" data-page="page-overview">Обзор</button>
+    <button class="tab-btn" data-page="page-classes">Классы</button>
+    <button class="tab-btn" data-page="page-students">Ученики</button>
+    <button class="tab-btn" data-page="page-teachers">Учителя</button>
+    <button class="tab-btn" data-page="page-subjects">Предметы</button>
+    <button class="tab-btn" data-page="page-attendance">Посещаемость</button>
+</div>
+
+<main>
+    <!-- PAGE: OVERVIEW -->
+    <div id="page-overview" class="page active">
+        <div class="filters">
+            <label>Четверть: <select id="ovTerm"></select></label>
+            <label>Метрика: <select id="ovMetric">
+                <option value="quality">Качество знаний</option>
+                <option value="average">Средняя оценка</option>
+            </select></label>
+            <button id="ovAiBtn" class="secondary"><i class="fas fa-magic"></i> ИИ-интерпретация</button>
+        </div>
+
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-value" id="kpiStudents">0</div>
+                <div class="kpi-label">Всего учеников</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-value" id="kpiTeachers">0</div>
+                <div class="kpi-label">Всего учителей</div>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <h2>Успеваемость по параллелям (1-11 классы)</h2>
+                <div class="table-container" id="ovGradeTable"></div>
+            </div>
+            <div class="card">
+                <h2>Статус учащихся (Вся школа)</h2>
+                <div id="ovDonut" style="height: 350px;"></div>
+            </div>
+        </div>
         
-        const valFO = (avgFO || 0) * wFO;
-        const valSOR = (avgSOR || 0) * wSOR;
-        const valSOCH = (avgSOCH || 0) * wSOCH;
+        <div id="ovAiResult" class="ai-box" style="display:none;">
+            <div class="ai-header"><i class="fas fa-robot"></i> Анализ ИИ</div>
+            <div id="ovAiText"></div>
+        </div>
+    </div>
 
-        const totalPct = valFO + valSOR + valSOCH;
-        
-        // Convert to 5 scale
-        const grade5 = convertTo5Scale(totalPct, scaleRules);
+    <!-- PAGE: CLASSES -->
+    <div id="page-classes" class="page">
+        <div class="filters">
+            <label>Четверть: <select id="clTerm"></select></label>
+            <label>Метрика: <select id="clMetric">
+                <option value="quality">Качество знаний</option>
+                <option value="average">Средняя оценка</option>
+            </select></label>
+        </div>
 
-        finalRows.push({
-            student_id: group.sid,
-            subject_id: group.sub,
-            term: group.term, // standardize property name
-            class_id: group.class_id,
-            final_percent: totalPct,
-            final_5scale: grade5,
-            avg_fo: avgFO,
-            avg_sor: avgSOR,
-            avg_soch: avgSOCH
+        <div class="card">
+            <h2>Рейтинг классов</h2>
+            <div class="table-container" id="clTable"></div>
+        </div>
+
+        <div class="filters" style="margin-top:30px;">
+            <label>Класс для диаграммы: <select id="clSelectClass"></select></label>
+        </div>
+        <div class="card">
+            <h2>Распределение оценок в классе</h2>
+            <div id="clDonut" style="height: 400px;"></div>
+        </div>
+    </div>
+
+    <!-- PAGE: STUDENTS -->
+    <div id="page-students" class="page">
+        <div class="filters">
+            <label>Класс: <select id="stClass"></select></label>
+            <label>Четверть: <select id="stTerm"></select></label>
+            <button id="stLoadBtn">Показать</button>
+        </div>
+        <div class="card">
+            <h2>Ведомость успеваемости</h2>
+            <div class="table-container" id="stTable"></div>
+        </div>
+    </div>
+
+    <!-- PAGE: TEACHERS -->
+    <div id="page-teachers" class="page">
+        <div class="filters">
+            <label>Четверть: <select id="tcTerm"></select></label>
+            <label>Метрика: <select id="tcMetric">
+                <option value="quality">Качество знаний</option>
+                <option value="average">Средняя оценка</option>
+            </select></label>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <h2>Квалификация педагогов</h2>
+                <div id="tcQualDonut" style="height: 300px;"></div>
+            </div>
+            <div class="card">
+                <h2>Детализация по учителю</h2>
+                <div style="margin-bottom:10px;">
+                    <select id="tcSelectTeacher" style="width:100%"></select>
+                </div>
+                <div id="tcStudentDonut" style="height: 260px;"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Эффективность работы учителей</h2>
+            <div class="table-container" id="tcTable"></div>
+        </div>
+    </div>
+
+    <!-- PAGE: SUBJECTS -->
+    <div id="page-subjects" class="page">
+        <div class="filters">
+            <label>Четверть: <select id="sbTerm"></select></label>
+            <label>Метрика: <select id="sbMetric">
+                <option value="quality">Качество знаний</option>
+                <option value="average">Средняя оценка</option>
+            </select></label>
+        </div>
+
+        <div class="card">
+            <h2>Рейтинг предметов</h2>
+            <div id="sbBarChart" style="height: 400px;"></div>
+        </div>
+
+        <div class="card">
+            <h2>Матрица: Предметы / Классы</h2>
+            <div id="sbHeatmap" style="height: 500px;"></div>
+        </div>
+    </div>
+
+    <!-- PAGE: ATTENDANCE -->
+    <div id="page-attendance" class="page">
+        <div class="filters">
+            <label>Четверть: <select id="atTerm"></select></label>
+        </div>
+
+        <div class="card">
+            <h2>Посещаемость по классам</h2>
+            <div class="table-container" id="atClassTable"></div>
+        </div>
+
+        <div class="filters" style="margin-top:20px;">
+            <label>Детализация по классу: <select id="atClassSelect"></select></label>
+        </div>
+        <div class="card">
+            <h2>Посещаемость учащихся</h2>
+            <div class="table-container" id="atStudentTable"></div>
+        </div>
+    </div>
+
+</main>
+
+<!-- Scripts -->
+<script src="llm_cpu.js"></script>
+<script src="main.js"></script>
+<script src="dashboard_overview.js"></script>
+<script src="dashboard_class.js"></script>
+<script src="dashboard_student.js"></script>
+<script src="dashboard_teacher.js"></script>
+<script src="dashboard_subject.js"></script>
+<script src="attendance.js"></script>
+
+<script>
+    // Simple Tab Switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(btn.dataset.page).classList.add('active');
         });
     });
+</script>
 
-    SBI.state.allRows = finalRows;
-    SBI.state.allTerms = SBI.unique(finalRows.map(r => r.term));
-    
-    console.log(`Data Processed: ${finalRows.length} analytic rows created.`);
-}
-
-// Add file listener
-document.addEventListener('DOMContentLoaded', () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.style.display = 'none';
-    input.id = 'fileLoader';
-    input.addEventListener('change', (e) => SBI.loadData(e.target.files));
-    document.body.appendChild(input);
-
-    // Temporary Trigger for UI (Auto-click if needed, or add button in header)
-    const header = document.querySelector('header div:last-child');
-    const btn = document.createElement('button');
-    btn.innerText = '📂 Загрузить Excel';
-    btn.style.background = 'rgba(255,255,255,0.2)';
-    btn.style.border = '1px solid rgba(255,255,255,0.4)';
-    btn.onclick = () => input.click();
-    header.prepend(btn);
-});
-
-// Helper for status
-SBI.setStatus = (msg) => {
-    const el = document.getElementById('statusBar');
-    if(el) el.innerText = msg;
-    console.log(`[STATUS] ${msg}`);
-};
+</body>
+</html>

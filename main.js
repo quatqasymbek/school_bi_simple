@@ -1,265 +1,243 @@
-// main.js - Data Loading and Processing Core
-console.log("MAIN.JS: Initializing...");
+// dashboard_class.js - Class Level Analysis
+console.log("DASHBOARD_CLASS.JS: Loaded");
 
-window.SBI = window.SBI || {};
-const SBI = window.SBI;
+window.SBI_Class = (function() {
+    const SBI = window.SBI;
 
-// ==========================================
-// 1. STATE MANAGEMENT
-// ==========================================
-SBI.state = {
-    allRows: [], 
-    students: [],
-    teachers: [], 
-    teacherQuals: [], 
-    assignments: [], 
-    classes: [],
-    subjects: [],
-    terms: [],
-    attendanceRows: [],
-    weights: {}, 
-    gradingScale: [] 
-};
+    // DOM Elements
+    let tableTermSelect, tableMetricSelect, tableHeader, tableBody;
+    let donutTermSelect, donutClassSelect, chartDonut;
 
-// ==========================================
-// 2. DATA PROCESSING HELPERS
-// ==========================================
-
-function parsePercent(val) {
-    if (val == null || val === "") return null;
-    let s = String(val).replace(",", ".").replace("%", "").trim();
-    let n = parseFloat(s);
-    if (isNaN(n)) return null;
-    if (n <= 1.0 && n > 0) return n * 100; 
-    return n;
-}
-
-function convertTo5Scale(score, scaleRules) {
-    if (score == null) return null;
-    if (!scaleRules || scaleRules.length === 0) {
-        if (score >= 85) return 5;
-        if (score >= 70) return 4;
-        if (score >= 55) return 3;
-        if (score >= 0) return 2;
-        return 0;
-    }
-    for (let rule of scaleRules) {
-        if (score >= rule.min && score <= rule.max) {
-            return rule.grade;
-        }
-    }
-    return 2; 
-}
-
-// ==========================================
-// 3. LOAD & PROCESS EXCEL FILES
-// ==========================================
-
-SBI.loadData = async function(files) {
-    SBI.setStatus("Чтение файлов...");
-    const state = SBI.state;
-    
-    // Reset state
-    state.allRows = [];
-    state.students = [];
-    state.teachers = [];
-    state.teacherQuals = [];
-    state.assignments = [];
-    state.classes = [];
-    state.subjects = [];
-    state.terms = [];
-    state.attendanceRows = [];
-
-    let rawGrades = [];
-    let rawWeights = [];
-    let rawScale = [];
-
-    for (let file of files) {
-        try {
-            const data = await file.arrayBuffer();
-            const workbook = XLSX.read(data);
-            const fileName = file.name.toUpperCase();
-
-            // Helper: Try to find data by Sheet Name first, then by File Name
-            const getData = (keyword) => {
-                const key = keyword.toUpperCase();
-                
-                // 1. Try Sheet Name
-                const sn = workbook.SheetNames.find(n => n.toUpperCase().includes(key));
-                if (sn) return XLSX.utils.sheet_to_json(workbook.Sheets[sn]);
-
-                // 2. Try File Name (if checking a CSV)
-                if (fileName.includes(key)) {
-                    // Return first sheet content
-                    const firstSheet = workbook.SheetNames[0];
-                    return XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet]);
-                }
-                return [];
-            };
-
-            // Accumulate Data
-            state.students = state.students.concat(getData("УЧАЩИЕСЯ"));
-            state.teachers = state.teachers.concat(getData("УЧИТЕЛЯ"));
-            state.classes = state.classes.concat(getData("КЛАССЫ"));
-            state.subjects = state.subjects.concat(getData("ПРЕДМЕТЫ"));
-            state.terms = state.terms.concat(getData("ЧЕТВЕРТИ"));
-            
-            // New Sheets for Teachers Page
-            // "НАЗНАЧЕНИЯ" covers "НАЗНАЧЕНИЯ_ПРЕПОД"
-            state.assignments = state.assignments.concat(getData("НАЗНАЧЕНИЯ")); 
-            // "QUALS" covers "TEACHER_QUALS"
-            state.teacherQuals = state.teacherQuals.concat(getData("QUALS")); 
-            
-            rawGrades = rawGrades.concat(getData("ОЦЕНКИ"));
-            
-            // Weights sometimes named "ВЕСА" or "ВЕСА_ОЦЕНОК"
-            rawWeights = rawWeights.concat(getData("ВЕСА")); 
-            
-            // Scale sometimes "ШКАЛА" or "ШКАЛА_5Б"
-            rawScale = rawScale.concat(getData("ШКАЛА")); 
-            
-            state.attendanceRows = state.attendanceRows.concat(getData("ПОСЕЩАЕМОСТЬ"));
-
-        } catch (e) {
-            console.error("Error reading file:", file.name, e);
-        }
-    }
-
-    SBI.setStatus("Обработка оценок...");
-    processAnalytics(rawGrades, rawWeights, rawScale);
-    
-    SBI.setStatus("Готово. Обновление дашбордов...");
-    
-    // Notify Dashboards
-    if (window.SBI_Overview && window.SBI_Overview.update) window.SBI_Overview.update();
-    if (window.SBI_Class && window.SBI_Class.onDataLoaded) window.SBI_Class.onDataLoaded();
-    if (window.SBI_Attendance && window.SBI_Attendance.onDataLoaded) window.SBI_Attendance.onDataLoaded();
-    if (window.SBI_Subject && window.SBI_Subject.onDataLoaded) window.SBI_Subject.onDataLoaded();
-    if (window.SBI_Teacher && window.SBI_Teacher.onDataLoaded) window.SBI_Teacher.onDataLoaded();
-};
-
-function processAnalytics(grades, weightsRaw, scaleRaw) {
-    const scaleRules = scaleRaw.map(r => ({
-        grade: parseInt(r.grade_5pt),
-        min: parseFloat(r.pct_min),
-        max: parseFloat(r.pct_max)
-    })).sort((a,b) => b.min - a.min); 
-
-    const weightMap = {};
-    weightsRaw.forEach(w => {
-        const t = w.term_id || 'default';
-        const s = w.subject_id || 'default';
-        const type = (w.work_type || "").toUpperCase().trim();
-        const val = parseFloat(w.weight_pct) / 100.0;
-
-        if (!weightMap[t]) weightMap[t] = {};
-        if (!weightMap[t][s]) weightMap[t][s] = {};
-        weightMap[t][s][type] = val;
-    });
-
-    const getWeight = (term, subj, type) => {
-        type = type.toUpperCase();
-        if (weightMap[term] && weightMap[term][subj] && weightMap[term][subj][type]) return weightMap[term][subj][type];
-        if (weightMap[term] && weightMap[term]['default'] && weightMap[term]['default'][type]) return weightMap[term]['default'][type];
-        if (weightMap['default'] && weightMap['default']['default'] && weightMap['default']['default'][type]) return weightMap['default']['default'][type];
+    function init() {
+        console.log("SBI_Class: Init starting...");
         
-        if (type === 'СОЧ') return 0.5;
-        if (type === 'СОР') return 0.25;
-        if (type === 'ФО') return 0.25;
-        return 0; 
-    };
+        // Table Controls
+        tableTermSelect = document.getElementById("clsTableTermSelect");
+        tableMetricSelect = document.getElementById("clsTableMetricSelect");
+        tableHeader = document.getElementById("class-summary-header");
+        tableBody = document.getElementById("class-summary-body");
 
-    const grouped = {}; 
-    
-    grades.forEach(row => {
-        const sid = row.student_id;
-        const sub = row.subject_id;
-        const term = row.term_id;
-        if(!sid || !sub || !term) return;
+        // Donut Controls
+        donutTermSelect = document.getElementById("clsDonutTermSelect");
+        donutClassSelect = document.getElementById("clsDonutClassSelect");
+        chartDonut = document.getElementById("chart-class-donut");
 
-        const key = `${sid}|${sub}|${term}`;
-        if (!grouped[key]) {
-            grouped[key] = {
-                sid, sub, term, class_id: row.class_id,
-                scores: { 'ФО': [], 'СОР': [], 'СОЧ': [] }
-            };
-        }
+        if(!tableBody) console.error("SBI_Class: Table Body not found!");
+        if(!chartDonut) console.error("SBI_Class: Donut Container not found!");
 
-        const type = (row.work_type || "ФО").toUpperCase().trim();
+        // Events
+        if(tableMetricSelect) tableMetricSelect.addEventListener("change", renderTable);
+        if(tableTermSelect) tableTermSelect.addEventListener("change", renderTable);
+
+        if(donutTermSelect) donutTermSelect.addEventListener("change", renderDonut);
+        if(donutClassSelect) donutClassSelect.addEventListener("change", renderDonut);
+    }
+
+    function onDataLoaded() {
+        console.log("SBI_Class: Data Loaded Triggered");
+        populateSelectors();
+        renderTable();
+        renderDonut();
+    }
+
+    function populateSelectors() {
+        const terms = SBI.state.allTerms || [];
+        const classes = SBI.state.classes || []; 
+
+        // Sort terms
+        terms.sort();
         
-        let pct = null;
-        if (row.percent != null) pct = parsePercent(row.percent);
-        else if (row.score != null && row.max_score != null) {
-            pct = (parseFloat(row.score) / parseFloat(row.max_score)) * 100;
-        }
-
-        if (pct != null) {
-            if (grouped[key].scores[type]) {
-                grouped[key].scores[type].push(pct);
-            } else {
-                 grouped[key].scores['ФО'].push(pct);
-            }
-        }
-    });
-
-    const finalRows = [];
-    
-    Object.values(grouped).forEach(group => {
-        const avgFO = SBI.mean(group.scores['ФО']);
-        const avgSOR = SBI.mean(group.scores['СОР']);
-        const avgSOCH = SBI.mean(group.scores['СОЧ']);
-
-        const wFO = getWeight(group.term, group.sub, 'ФО');
-        const wSOR = getWeight(group.term, group.sub, 'СОР');
-        const wSOCH = getWeight(group.term, group.sub, 'СОЧ');
-
-        const valFO = (avgFO || 0) * wFO;
-        const valSOR = (avgSOR || 0) * wSOR;
-        const valSOCH = (avgSOCH || 0) * wSOCH;
-
-        const totalPct = valFO + valSOR + valSOCH;
-        const grade5 = convertTo5Scale(totalPct, scaleRules);
-
-        finalRows.push({
-            student_id: group.sid,
-            subject_id: group.sub,
-            term: group.term, 
-            class_id: group.class_id,
-            final_percent: totalPct,
-            final_5scale: grade5
+        // Sort classes naturally
+        const sortedClasses = [...classes].sort((a,b) => {
+            return (a.class_id || "").localeCompare(b.class_id || "", undefined, {numeric: true});
         });
-    });
 
-    SBI.state.allRows = finalRows;
-    SBI.state.allTerms = SBI.unique(finalRows.map(r => r.term));
-    
-    console.log(`Data Processed: ${finalRows.length} rows, ${SBI.state.classes.length} classes, ${SBI.state.teachers.length} teachers.`);
-}
+        // 1. Table Term Selector
+        if(tableTermSelect) {
+            tableTermSelect.innerHTML = "";
+            terms.forEach(t => {
+                const opt = document.createElement("option");
+                opt.value = t;
+                opt.textContent = t;
+                tableTermSelect.appendChild(opt);
+            });
+        }
 
-document.addEventListener('DOMContentLoaded', () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.style.display = 'none';
-    input.id = 'fileLoader';
-    input.addEventListener('change', (e) => SBI.loadData(e.target.files));
-    document.body.appendChild(input);
+        // 2. Donut Term Selector
+        if(donutTermSelect) {
+            donutTermSelect.innerHTML = "";
+            terms.forEach(t => {
+                const opt = document.createElement("option");
+                opt.value = t;
+                opt.textContent = t;
+                donutTermSelect.appendChild(opt);
+            });
+        }
 
-    const header = document.querySelector('header div:last-child');
-    const oldBtn = document.getElementById('uploadBtn');
-    if(oldBtn) oldBtn.remove();
+        // 3. Donut Class Selector
+        if(donutClassSelect) {
+            donutClassSelect.innerHTML = "";
+            sortedClasses.forEach(c => {
+                const opt = document.createElement("option");
+                opt.value = c.class_id; 
+                opt.textContent = c.class_name || c.class_id;
+                donutClassSelect.appendChild(opt);
+            });
+            // Select first one by default
+            if(sortedClasses.length > 0) donutClassSelect.value = sortedClasses[0].class_id;
+        }
+    }
 
-    const btn = document.createElement('button');
-    btn.id = 'uploadBtn';
-    btn.innerText = '📂 Загрузить Excel';
-    btn.style.background = 'rgba(255,255,255,0.2)';
-    btn.style.border = '1px solid rgba(255,255,255,0.4)';
-    btn.onclick = () => input.click();
-    if(header) header.prepend(btn);
-});
+    function renderTable() {
+        if(!tableBody) return;
+        tableBody.innerHTML = "";
+        
+        const terms = SBI.state.allTerms ? SBI.state.allTerms.sort() : [];
+        const metric = tableMetricSelect ? tableMetricSelect.value : "quality"; 
+        const rows = SBI.state.allRows || [];
+        const classList = SBI.state.classes || []; 
+        const teacherList = SBI.state.teachers || []; 
 
-SBI.setStatus = (msg) => {
-    const el = document.getElementById('statusBar');
-    if(el) el.innerText = msg;
-    console.log(`[STATUS] ${msg}`);
-};
+        // 1. Rebuild Header
+        tableHeader.innerHTML = "<th>Класс</th><th>Кл. Руководитель</th>";
+        terms.forEach(t => {
+            const th = document.createElement("th");
+            th.textContent = t;
+            if(tableTermSelect && tableTermSelect.value === t) {
+                th.style.background = "#e3f2fd";
+                th.style.color = "#1565c0";
+            }
+            tableHeader.appendChild(th);
+        });
+
+        // 2. Build Rows
+        const sortedClasses = [...classList].sort((a,b) => 
+            (a.class_id||"").localeCompare(b.class_id||"", undefined, {numeric:true})
+        );
+
+        sortedClasses.forEach(cls => {
+            const tr = document.createElement("tr");
+            
+            // Col 1: Name
+            const tdName = document.createElement("td");
+            tdName.textContent = cls.class_name || cls.class_id;
+            tr.appendChild(tdName);
+
+            // Col 2: Teacher
+            const tdTeach = document.createElement("td");
+            const teachObj = teacherList.find(t => t.teacher_id === cls.homeroom_teacher_id);
+            tdTeach.textContent = teachObj ? `${teachObj.last_name} ${teachObj.first_name}` : (cls.homeroom_teacher_id || "-");
+            tr.appendChild(tdTeach);
+
+            // Col 3+: Terms
+            terms.forEach(t => {
+                const td = document.createElement("td");
+                // Filter rows for this Class AND Term
+                const cellRows = rows.filter(r => r.class_id === cls.class_id && r.term === t);
+
+                if(cellRows.length === 0) {
+                    td.textContent = "-";
+                    td.style.color = "#ccc";
+                } else {
+                    td.textContent = calculateMetric(cellRows, metric);
+                    
+                    // Color coding
+                    const val = parseFloat(td.textContent);
+                    if (metric === 'quality') {
+                        if(val >= 70) td.classList.add('grade-good');
+                        if(val < 40) td.classList.add('grade-bad');
+                    } else {
+                        if(val >= 4.5) td.classList.add('grade-good');
+                        if(val < 3.0) td.classList.add('grade-bad');
+                    }
+                }
+                
+                if(tableTermSelect && tableTermSelect.value === t) {
+                    td.style.background = "#f0f8ff";
+                }
+                tr.appendChild(td);
+            });
+
+            tableBody.appendChild(tr);
+        });
+        
+        if(classList.length === 0) {
+             tableBody.innerHTML = "<tr><td colspan='5' style='padding:20px; color:#999;'>Данные о классах не найдены. Проверьте лист 'КЛАССЫ' в Excel.</td></tr>";
+        }
+    }
+
+    function calculateMetric(rows, metric) {
+        const grades = rows.map(r => r.final_5scale).filter(g => g != null);
+        if(grades.length === 0) return "-";
+
+        if (metric === 'average') {
+            const avg = SBI.mean(grades);
+            return avg.toFixed(2);
+        } else {
+            // Quality: % of 4 and 5
+            const good = grades.filter(g => g >= 4).length;
+            return ((good / grades.length) * 100).toFixed(1);
+        }
+    }
+
+    function renderDonut() {
+        if(!chartDonut) return;
+        if(!donutTermSelect || !donutClassSelect) return;
+
+        const term = donutTermSelect.value;
+        const clsId = donutClassSelect.value;
+        
+        if(!term || !clsId) {
+             chartDonut.innerHTML = "";
+             return;
+        }
+
+        const rows = SBI.state.allRows || [];
+        const subset = rows.filter(r => r.term === term && r.class_id === clsId);
+        
+        if(subset.length === 0) {
+            Plotly.purge(chartDonut);
+            chartDonut.innerHTML = "<div style='padding:50px; text-align:center; color:#999;'>Нет оценок для этого класса за выбранную четверть</div>";
+            return;
+        }
+
+        const students = SBI.unique(subset.map(r => r.student_id));
+        let counts = { '5': 0, '4': 0, '3': 0, '2': 0 };
+
+        students.forEach(sid => {
+            const sGrades = subset.filter(r => r.student_id === sid).map(r => r.final_5scale);
+            if (sGrades.length === 0) return;
+
+            const has2 = sGrades.some(g => g <= 2);
+            const has3 = sGrades.some(g => g === 3);
+            
+            if (has2) counts['2']++;
+            else if (has3) counts['3']++;
+            else if (sGrades.every(g => g === 5)) counts['5']++;
+            else counts['4']++;
+        });
+
+        const data = [{
+            values: [counts['5'], counts['4'], counts['3'], counts['2']],
+            labels: ['Отличники', 'Хорошисты', 'Троечники', 'Двоечники'],
+            type: 'pie',
+            hole: 0.5,
+            marker: { colors: ['#2ecc71', '#3498db', '#f1c40f', '#e74c3c'] },
+            textinfo: 'label+value',
+            hoverinfo: 'label+percent'
+        }];
+
+        Plotly.newPlot(chartDonut, data, {
+            title: `Успеваемость ${clsId} (${term})`,
+            margin: { t: 40, b: 20, l: 20, r: 20 },
+            showlegend: true,
+            legend: { orientation: 'h', y: -0.1 }
+        }, {displayModeBar: false});
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+
+    return {
+        onDataLoaded: onDataLoaded
+    };
+})();

@@ -1,245 +1,117 @@
-// attendance.js - Attendance Dashboard Logic
-console.log("ATTENDANCE.JS: Loaded");
-
 window.SBI_Attendance = (function() {
-    const SBI = window.SBI;
+    function update() {
+        if (!SBI.state.isLoaded) return;
 
-    // DOM Elements
-    let summaryWrapper;
-    let detailWrapper;
-    let termSummarySelect;
-    let termDetailSelect;
-    let classDetailSelect;
-
-    function init() {
-        summaryWrapper = document.getElementById("attSummaryTableWrapper");
-        detailWrapper = document.getElementById("attDetailTableWrapper");
-
-        termSummarySelect = document.getElementById("attTermSummary");
-        termDetailSelect  = document.getElementById("attTermDetail");
-        classDetailSelect = document.getElementById("attClassDetail");
-
-        if (termSummarySelect) termSummarySelect.onchange = renderSummary;
-        if (termDetailSelect)  termDetailSelect.onchange  = renderDetail;
-        if (classDetailSelect) classDetailSelect.onchange = renderDetail;
-    }
-
-    // Helper: Get Student Name
-    function getStudentName(sid) {
-        const s = SBI.state.students.find(st => st.student_id === sid);
-        if (!s) return sid;
-        return `${s.last_name || ""} ${s.first_name || ""}`.trim() || sid;
-    }
-
-    // Helper: Get Kazakh Class Name
-    function getClassName(cid) {
-        const c = SBI.state.classes.find(cl => cl.class_id === cid);
-        if (!c) return cid; // Fallback to ID if not found
-        return c.class_name || cid; // e.g. "1 «А» сыныбы"
-    }
-
-    function onDataLoaded() {
-        const rows = SBI.state.attendanceRows || [];
-        if (!rows.length) {
-            if (summaryWrapper) summaryWrapper.innerHTML = "<p style='padding:15px; color:#888'>Нет данных о посещаемости.</p>";
-            return;
-        }
-
-        // Populate Selectors
-        // Terms
-        const terms = SBI.unique(rows.map(r => r.term_id)).sort();
-        fillSelect(termSummarySelect, terms);
-        fillSelect(termDetailSelect, terms);
-
-        // Classes (IDs for value, Kazakh Names for display)
-        const classIds = SBI.unique(rows.map(r => r.class_id)).sort();
-        if (classDetailSelect) {
-            classDetailSelect.innerHTML = "";
-            classIds.forEach(cid => {
-                const opt = document.createElement("option");
-                opt.value = cid;
-                opt.textContent = getClassName(cid); // Show "1 «А» сыныбы"
-                classDetailSelect.appendChild(opt);
+        const termSel = document.getElementById('atTerm');
+        if (termSel.options.length === 0) {
+             SBI.state.terms.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.term_id; opt.text = t.term_id;
+                termSel.add(opt);
             });
+            termSel.addEventListener('change', renderClassTable);
+            
+            const clSel = document.getElementById('atClassSelect');
+            SBI.state.classes.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.class_id; opt.text = c.class_name;
+                clSel.add(opt);
+            });
+            clSel.addEventListener('change', renderStudentTable);
         }
-
-        // Default selections
-        if (terms.length > 0) {
-            if(termSummarySelect) termSummarySelect.value = terms[0];
-            if(termDetailSelect) termDetailSelect.value = terms[0];
-        }
-        if (classIds.length > 0 && classDetailSelect) {
-            classDetailSelect.value = classIds[0];
-        }
-
-        renderSummary();
-        renderDetail();
+        renderClassTable();
     }
 
-    function fillSelect(select, values) {
-        if (!select) return;
-        select.innerHTML = "";
-        values.forEach(v => {
-            const opt = document.createElement("option");
-            opt.value = v;
-            opt.textContent = v;
-            select.appendChild(opt);
-        });
-    }
+    function renderClassTable() {
+        const term = document.getElementById('atTerm').value;
+        const container = document.getElementById('atClassTable');
+        
+        // Aggregate attendance by class
+        const classes = SBI.state.classes;
+        let html = `<table><thead><tr>
+            <th>Класс</th>
+            <th>Всего занятий</th>
+            <th>Присутствие (%)</th>
+            <th>Опоздания (%)</th>
+            <th>Уваж. (%)</th>
+            <th>Неуваж. (%)</th>
+        </tr></thead><tbody>`;
 
-    // ==========================================
-    // 1. SUMMARY TABLE (School Wide)
-    // ==========================================
-    function renderSummary() {
-        if (!summaryWrapper || !termSummarySelect) return;
-        const term = termSummarySelect.value;
-        const rows = SBI.state.attendanceRows.filter(r => r.term_id === term);
+        classes.forEach(c => {
+            const recs = SBI.state.attendance.filter(a => a.class_id === c.class_id && a.term_id === term);
+            if (recs.length === 0) return;
 
-        // Aggregate by Class
-        const classStats = {};
-
-        rows.forEach(r => {
-            const cid = r.class_id;
-            if (!classStats[cid]) classStats[cid] = { total: 0, present: 0, late: 0, exc: 0, unexc: 0 };
+            const stats = aggregateAtt(recs);
             
-            classStats[cid].total += (parseInt(r.total_classes) || 0);
-            classStats[cid].present += (parseInt(r.present_classes) || 0);
-            classStats[cid].late += (parseInt(r.late_classes) || 0);
-            classStats[cid].exc += (parseInt(r.absent_excused_classes) || 0);
-            classStats[cid].unexc += (parseInt(r.absent_unexcused_classes) || 0);
+            html += `<tr>
+                <td>${c.class_name}</td>
+                <td>${stats.total}</td>
+                <td>${stats.present_pct}%</td>
+                <td>${stats.late_pct}%</td>
+                <td>${stats.exc_pct}%</td>
+                <td>${stats.unexc_pct}%</td>
+            </tr>`;
         });
-
-        let html = `
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Класс</th>
-                        <th>% Посещаемости</th>
-                        <th>Всего уроков</th>
-                        <th>Присутствовал</th>
-                        <th>Опоздания</th>
-                        <th>Ув. причины</th>
-                        <th>Неув. причины</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-
-        // Sort by Class ID for consistency
-        Object.keys(classStats).sort().forEach(cid => {
-            const s = classStats[cid];
-            const pct = s.total > 0 ? ((s.present / s.total) * 100).toFixed(1) : "-";
-            
-            html += `
-                <tr>
-                    <td style="text-align:left; font-weight:bold;">${getClassName(cid)}</td>
-                    <td style="font-weight:bold; color:${parseFloat(pct) < 90 ? '#e74c3c' : '#2ecc71'}">${pct}%</td>
-                    <td>${s.total}</td>
-                    <td>${s.present}</td>
-                    <td>${s.late}</td>
-                    <td>${s.exc}</td>
-                    <td>${s.unexc}</td>
-                </tr>
-            `;
-        });
-
         html += `</tbody></table>`;
-        summaryWrapper.innerHTML = html;
+        container.innerHTML = html;
     }
 
-    // ==========================================
-    // 2. DETAIL TABLE (By Student)
-    // ==========================================
-    function renderDetail() {
-        if (!detailWrapper || !termDetailSelect || !classDetailSelect) return;
+    function renderStudentTable() {
+        const term = document.getElementById('atTerm').value;
+        const classId = document.getElementById('atClassSelect').value;
+        const container = document.getElementById('atStudentTable');
+
+        if (!classId) return;
+
+        // Get students enrolled
+        const enrollments = SBI.state.enrollments.filter(e => e.class_id === classId && e.term_id === term);
         
-        const term = termDetailSelect.value;
-        const classId = classDetailSelect.value;
+        let html = `<table><thead><tr>
+            <th>Ученик</th><th>ID</th>
+            <th>Всего</th><th>Присут. (%)</th><th>Опозд. (%)</th><th>Уваж. (%)</th><th>Неуваж. (%)</th>
+        </tr></thead><tbody>`;
 
-        // Filter rows for this class and term
-        const rows = SBI.state.attendanceRows.filter(r => r.term_id === term && r.class_id === classId);
+        enrollments.forEach(e => {
+            const s = SBI.state.students.find(stu => stu.student_id === e.student_id);
+            const name = s ? `${s.last_name} ${s.first_name}` : e.student_id;
 
-        if (rows.length === 0) {
-            detailWrapper.innerHTML = "<div style='padding:20px; text-align:center; color:#999'>Нет данных для выбранного класса и четверти.</div>";
-            return;
-        }
+            const recs = SBI.state.attendance.filter(a => a.student_id === e.student_id && a.term_id === term);
+            const stats = aggregateAtt(recs);
 
-        // AGGREGATE BY STUDENT
-        // Since rows are per-subject, we must sum them up to get "Total Classes" for the student
-        const studentStats = {};
+            html += `<tr>
+                <td>${name}</td><td>${e.student_id}</td>
+                <td>${stats.total}</td>
+                <td>${stats.present_pct}%</td>
+                <td>${stats.late_pct}%</td>
+                <td>${stats.exc_pct}%</td>
+                <td>${stats.unexc_pct}%</td>
+            </tr>`;
+        });
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+    }
 
+    function aggregateAtt(rows) {
+        let total = 0, present = 0, late = 0, exc = 0, unexc = 0;
         rows.forEach(r => {
-            const sid = r.student_id;
-            if (!studentStats[sid]) {
-                studentStats[sid] = { 
-                    sid: sid,
-                    total: 0, present: 0, late: 0, exc: 0, unexc: 0 
-                };
-            }
-            
-            studentStats[sid].total += (parseInt(r.total_classes) || 0);
-            studentStats[sid].present += (parseInt(r.present_classes) || 0);
-            studentStats[sid].late += (parseInt(r.late_classes) || 0);
-            studentStats[sid].exc += (parseInt(r.absent_excused_classes) || 0);
-            studentStats[sid].unexc += (parseInt(r.absent_unexcused_classes) || 0);
+            // Assuming fields: total_classes, present_classes, etc. (as per snippet)
+            // Ensure numbers
+            total += (parseInt(r.total_classes)||0);
+            present += (parseInt(r.present_classes)||0);
+            late += (parseInt(r.late_classes)||0);
+            exc += (parseInt(r.absent_excused_classes)||0);
+            unexc += (parseInt(r.absent_unexcused_classes)||0);
         });
 
-        let html = `
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Ученик</th>
-                        <th>Посещаемость</th>
-                        <th>Всего уроков</th>
-                        <th>Присутствовал</th>
-                        <th>Опоздания</th>
-                        <th>Ув. пропуски</th>
-                        <th>Неув. пропуски</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-
-        // Sort alphabetically by name
-        const sortedStudents = Object.values(studentStats).sort((a, b) => {
-            return getStudentName(a.sid).localeCompare(getStudentName(b.sid));
-        });
-
-        sortedStudents.forEach(s => {
-            const pct = s.total > 0 ? ((s.present / s.total) * 100).toFixed(1) : 0;
-            const colorClass = parseFloat(pct) < 85 ? 'color:#e74c3c' : 'color:#333'; // Highlight bad attendance
-
-            html += `
-                <tr>
-                    <td style="text-align:left;">
-                        <div style="font-weight:500;">${getStudentName(s.sid)}</div>
-                        <div style="font-size:0.8em; color:#999;">${s.sid}</div>
-                    </td>
-                    <td style="font-weight:bold; ${colorClass}">${pct}%</td>
-                    <td>${s.total}</td>
-                    <td>${s.present}</td>
-                    <td>${s.late}</td>
-                    <td>${s.exc}</td>
-                    <td>${s.unexc}</td>
-                </tr>
-            `;
-        });
-
-        html += "</tbody></table>";
-        
-        // Add footer explanation
-        html += `
-            <div style="margin-top:10px; font-size:0.85rem; color:#666; font-style:italic;">
-                * "Всего уроков" — сумма уроков по всем предметам, за которые выставлена посещаемость.
-            </div>
-        `;
-
-        detailWrapper.innerHTML = html;
+        const calc = (n) => total > 0 ? ((n/total)*100).toFixed(1) : '0.0';
+        return {
+            total,
+            present_pct: calc(present),
+            late_pct: calc(late),
+            exc_pct: calc(exc),
+            unexc_pct: calc(unexc)
+        };
     }
 
-    document.addEventListener('DOMContentLoaded', init);
-
-    return {
-        onDataLoaded: onDataLoaded
-    };
+    return { update };
 })();

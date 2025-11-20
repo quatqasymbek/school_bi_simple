@@ -1,506 +1,166 @@
-// dashboard_overview.js
-// Обзор школы: фильтры, KPI, таблица по классам/четвертям, донат и локальный ИИ
-
-window.SBI_Overview = (function () {
-    const SBI = window.SBI || {};
-    const state = SBI.state || {};
-    const log = SBI.log || console.log;
-
-    // --- DOM elements ---
-    let termSelect;
-    let metricSelect;
-    let kpiStudentsEl;
-    let kpiTeachersEl;
-    let gradeTableEl;
-    let donutEl;
-    let aiBtn;
-    let aiOutput;
-
-    // metric keys
-    const METRIC_KNOWLEDGE = "knowledge_quality";
-    const METRIC_AVG = "avg_mark";
-
-    // for AI
-    let currentInsightData = null;
-
-    // ------------------ UTILITIES ------------------ //
-
-    function ensureNumber(v) {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : null;
-    }
-
-    function valueTo5Scale(row) {
-        // final_5scale уже есть; final_percent на всякий случай
-        const s5 = ensureNumber(row.final_5scale);
-        if (s5 != null && s5 > 0) return s5;
-
-        const p = ensureNumber(row.final_percent);
-        if (p != null && p > 0) {
-            return p / 20; // 100 -> 5
-        }
-        return null;
-    }
-
-    function metricFromRows(rows, metric) {
-        if (!rows || !rows.length) {
-            return { value: null, count: 0 };
-        }
-
-        if (metric === METRIC_AVG) {
-            const vals = rows
-                .map(valueTo5Scale)
-                .filter(v => v != null);
-            const val = SBI.mean ? SBI.mean(vals) : (vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
-            return { value: val, count: vals.length };
-        }
-
-        // METRIC_KNOWLEDGE: доля оценок 4–5
-        const kvals = rows
-            .map(r => {
-                if (r.knowledge_quality != null) {
-                    const q = Number(r.knowledge_quality);
-                    if (!Number.isNaN(q)) return q; // уже 0/1
-                }
-                const s5 = valueTo5Scale(r);
-                if (s5 == null) return null;
-                return (s5 >= 4) ? 1 : 0;
-            })
-            .filter(v => v != null);
-
-        const m = SBI.mean ? SBI.mean(kvals) : (kvals.length ? kvals.reduce((a, b) => a + b, 0) / kvals.length : null);
-        return { value: m, count: kvals.length };
-    }
-
-    function formatMetricValue(metric, val) {
-        if (val == null) return "—";
-        if (metric === METRIC_KNOWLEDGE) {
-            return (val * 100).toFixed(1) + " %";
-        }
-        return val.toFixed(2);
-    }
-
-    function unique(arr) {
-        return SBI.unique ? SBI.unique(arr) : Array.from(new Set(arr));
-    }
-
-    // ------------------ AGGREGATION ------------------ //
-
-    function getFilteredRowsByTerm(termValue) {
-        const rows = state.allRows || [];
-        if (!rows.length) return [];
-        if (!termValue || termValue === "ALL") return rows;
-        return rows.filter(r => String(r.term || "").trim() === String(termValue).trim());
-    }
-
-    function buildGradeTermMatrix(metricKey) {
-        const rows = state.allRows || [];
-        if (!rows.length) {
-            return { grades: [], terms: [], matrix: {} };
-        }
-
-        const terms = unique(rows.map(r => r.term)).sort((a, b) =>
-            String(a).localeCompare(String(b), "ru", { numeric: true })
-        );
-
-        // если grade уже числовой в analyticRows
-        const gradeNums = rows
-            .map(r => ensureNumber(r.grade))
-            .filter(v => v != null);
-        const gradesUnique = Array.from(new Set(gradeNums)).sort((a, b) => a - b);
-
-        const matrix = {}; // grade -> term -> {value,count}
-
-        gradesUnique.forEach(g => {
-            matrix[g] = {};
-            terms.forEach(term => {
-                const subset = rows.filter(r =>
-                    ensureNumber(r.grade) === g &&
-                    String(r.term || "").trim() === String(term).trim()
-                );
-                matrix[g][term] = metricFromRows(subset, metricKey);
-            });
-        });
-
-        return {
-            grades: gradesUnique,
-            terms: terms,
-            matrix: matrix
-        };
-    }
-
-    function classifyStudentsForTerm(termValue) {
-        const rows = getFilteredRowsByTerm(termValue);
-        if (!rows.length) {
-            return {
-                otlichniki: 0,
-                horoshisty: 0,
-                troechniki: 0,
-                dvoechniki: 0,
-                totalStudents: 0
-            };
-        }
-
-        const perStudent = {}; // id -> flags
-
-        rows.forEach(r => {
-            const sid = String(r.student_id || "").trim();
-            if (!sid) return;
-            const g = valueTo5Scale(r);
-            if (g == null) return;
-
-            if (!perStudent[sid]) {
-                perStudent[sid] = {
-                    has2: false,
-                    has3: false,
-                    has4: false,
-                    has5: false
-                };
-            }
-            const s = perStudent[sid];
-            if (g <= 2.49) s.has2 = true;
-            else if (g <= 3.49) s.has3 = true;
-            else if (g <= 4.49) s.has4 = true;
-            else s.has5 = true;
-        });
-
-        let otl = 0, hor = 0, tro = 0, dvo = 0;
-
-        Object.values(perStudent).forEach(s => {
-            if (s.has2) {
-                dvo++;
-            } else if (s.has3) {
-                tro++;
-            } else if (s.has4) {
-                hor++;
-            } else if (s.has5) {
-                otl++;
-            }
-        });
-
-        const totalStudents = Object.keys(perStudent).length;
-        return {
-            otlichniki: otl,
-            horoshisty: hor,
-            troechniki: tro,
-            dvoechniki: dvo,
-            totalStudents
-        };
-    }
-
-    function buildInsightData(metricKey, termValue) {
-        const allRows = state.allRows || [];
-        const rowsTerm = getFilteredRowsByTerm(termValue);
-
-        const allMetric = metricFromRows(allRows, metricKey);
-        const termMetric = metricFromRows(rowsTerm, metricKey);
-
-        const gradeMatrix = buildGradeTermMatrix(metricKey);
-        const dist = classifyStudentsForTerm(termValue);
-
-        const totalStudents = (state.students || []).length ||
-            unique(allRows.map(r => r.student_id)).length;
-
-        const totalTeachers = (state.allTeachers || state.teachers || []).length;
-
-        return {
-            dashboard: "overview",
-            metric: metricKey,
-            filterTerm: termValue || "ALL",
-            totalStudents,
-            totalTeachers,
-            overallMetricAllTerms: {
-                value: allMetric.value,
-                count: allMetric.count
-            },
-            overallMetricCurrentTerm: {
-                value: termMetric.value,
-                count: termMetric.count
-            },
-            grades: gradeMatrix.grades,
-            terms: gradeMatrix.terms,
-            matrix: gradeMatrix.matrix,
-            distribution: dist
-        };
-    }
-
-    // ------------------ RENDERERS ------------------ //
-
-    function renderKPIs(metricKey, termValue) {
-        const allRows = state.allRows || [];
-        const rowsTerm = getFilteredRowsByTerm(termValue);
-
-        const totalStudents = (state.students || []).length ||
-            unique(allRows.map(r => r.student_id)).length;
-        const totalTeachers = (state.allTeachers || state.teachers || []).length;
-
-        if (kpiStudentsEl) {
-            kpiStudentsEl.textContent = totalStudents.toString();
-        }
-        if (kpiTeachersEl) {
-            kpiTeachersEl.textContent = totalTeachers.toString();
-        }
-
-        const mAll = metricFromRows(allRows, metricKey);
-        const mTerm = metricFromRows(rowsTerm, metricKey);
-
-        const container = document.getElementById("overview-summary");
-        if (container) {
-            const metricName = (metricKey === METRIC_KNOWLEDGE)
-                ? "Качество знаний"
-                : "Средняя оценка";
-
-            container.innerHTML = `
-                <p><strong>${metricName} по школе (все четверти):</strong> ${formatMetricValue(metricKey, mAll.value)}</p>
-                <p><strong>${metricName} по выбранной четверти:</strong> ${formatMetricValue(metricKey, mTerm.value)}</p>
-            `;
-        }
-    }
-
-    function renderGradeTermTable(metricKey) {
-        if (!gradeTableEl) return;
-
-        const { grades, terms, matrix } = buildGradeTermMatrix(metricKey);
-
-        if (!grades.length || !terms.length) {
-            gradeTableEl.innerHTML = "<p>Недостаточно данных для построения таблицы.</p>";
-            return;
-        }
-
-        let html = "<table class='overview-grade-table' style='border-collapse:collapse;width:100%;font-size:13px;'>";
-        html += "<thead><tr>";
-        html += "<th style='border:1px solid #ddd;padding:4px 6px;text-align:center;'>Класс</th>";
-
-        terms.forEach(term => {
-            html += `<th style='border:1px solid #ddd;padding:4px 6px;text-align:center;'>${term}</th>`;
-        });
-
-        html += "</tr></thead><tbody>";
-
-        grades.forEach(g => {
-            html += "<tr>";
-            html += `<td style='border:1px solid #ddd;padding:4px 6px;text-align:center;'>${g}</td>`;
-            terms.forEach(term => {
-                const cell = matrix[g][term];
-                const v = cell ? cell.value : null;
-                html += `<td style='border:1px solid #ddd;padding:4px 6px;text-align:center;'>${formatMetricValue(metricKey, v)}</td>`;
-            });
-            html += "</tr>";
-        });
-
-        html += "</tbody></table>";
-
-        gradeTableEl.innerHTML = html;
-    }
-
-    function renderDonut(termValue) {
-        if (!donutEl || typeof Plotly === "undefined") return;
-
-        const dist = classifyStudentsForTerm(termValue);
-        const total = dist.totalStudents;
-
-        if (!total) {
-            Plotly.newPlot(donutEl, [], {
-                title: "Недостаточно данных для построения диаграммы"
-            });
-            return;
-        }
-
-        const labels = ["Отличники", "Хорошисты", "Троечники", "Двоечники"];
-        const values = [
-            dist.otlichniki,
-            dist.horoshisty,
-            dist.troechniki,
-            dist.dvoechniki
-        ];
-
-        const colors = ["#2e7d32", "#1976d2", "#ffb300", "#e53935"];
-
-        const data = [{
-            type: "pie",
-            labels: labels,
-            values: values,
-            hole: 0.5,
-            marker: { colors: colors },
-            textinfo: "label+percent",
-            insidetextorientation: "radial"
-        }];
-
-        const layout = {
-            title: "Структура успеваемости по выбранной четверти",
-            margin: { t: 40, l: 10, r: 10, b: 10 },
-            showlegend: true
-        };
-
-        Plotly.newPlot(donutEl, data, layout);
-    }
-
-    // ------------------ AI HANDLER ------------------ //
-
-    function setAILoading(isLoading, msg) {
-        if (aiBtn) aiBtn.disabled = isLoading;
-        if (aiOutput && msg) aiOutput.textContent = msg;
-    }
-
-    async function onAIButtonClick() {
-        if (!currentInsightData) {
-            if (aiOutput) {
-                aiOutput.textContent = "Нет агрегированных данных для анализа. Сначала загрузите Excel-файл.";
-            }
-            return;
-        }
-
-        if (!window.SBI_LLM || typeof window.SBI_LLM.interpret !== "function") {
-            if (aiOutput) {
-                aiOutput.textContent =
-                    "Локальный ИИ не инициализирован. Убедитесь, что файл llm_cpu.js подключён перед dashboard_overview.js.";
-            }
-            return;
-        }
-
-        try {
-            setAILoading(true, "Подготовка AI-анализа…");
-
-            const metricKey = metricSelect ? metricSelect.value : METRIC_KNOWLEDGE;
-
-            const text = await window.SBI_LLM.interpret({
-                context: "overview_dashboard",
-                data: currentInsightData,
-                temperature: 0.25,
-                maxTokens: 850,
-                onProgress: function (msg) {
-                    if (aiOutput) aiOutput.textContent = msg;
-                },
-                userInstruction:
-                    "Это общешкольный обзор успеваемости.\n" +
-                    "JSON содержит:\n" +
-                    "- metric: тип метрики (knowledge_quality или avg_mark),\n" +
-                    "- totalStudents, totalTeachers,\n" +
-                    "- overallMetricAllTerms и overallMetricCurrentTerm,\n" +
-                    "- матрицу по классам и четвертям,\n" +
-                    "- распределение учеников (отличники, хорошисты, троечники, двоечники) по выбранной четверти.\n\n" +
-                    "Сделай интерпретацию:\n" +
-                    "1) Опиши общий уровень успеваемости и динамику.\n" +
-                    "2) Выдели сильные классы/параллели и четверти.\n" +
-                    "3) Укажи возможные зоны риска.\n" +
-                    "4) Дай 3–5 практических рекомендаций администрации и учителям.\n" +
-                    "Не придумывай новые числа, которых нет в JSON, но можно описывать тенденции."
-            });
-
-            if (aiOutput) {
-                aiOutput.textContent = text;
-            }
-        } catch (err) {
-            console.error("[OverviewDashboard] AI error:", err);
-            if (aiOutput) {
-                aiOutput.textContent =
-                    "Ошибка при AI-анализе. Попробуйте ещё раз или обновите страницу.";
-            }
-        } finally {
-            setAILoading(false);
-        }
-    }
-
-    // ------------------ UPDATE FLOW ------------------ //
-
+window.SBI_Overview = (function() {
+    
     function update() {
-        const metricKey = metricSelect ? metricSelect.value : METRIC_KNOWLEDGE;
-        const termValue = termSelect ? termSelect.value : "ALL";
-
-        renderKPIs(metricKey, termValue);
-        renderGradeTermTable(metricKey);
-        renderDonut(termValue);
-
-        // подготовим данные для AI
-        currentInsightData = buildInsightData(metricKey, termValue);
-
-        if (aiOutput && !aiOutput.textContent) {
-            aiOutput.textContent = "Локальный ИИ пока не инициализирован. Нажмите кнопку, чтобы запустить анализ.";
+        if (!SBI.state.isLoaded) return;
+        
+        const rows = SBI.state.processedGrades;
+        const terms = [...new Set(rows.map(r => r.term_id))].sort();
+        
+        // Populate Selectors
+        const selTerm = document.getElementById('ovTerm');
+        if (selTerm.options.length === 0) {
+            const allOpt = document.createElement('option');
+            allOpt.value = 'ALL'; allOpt.text = 'Весь год';
+            selTerm.add(allOpt);
+            terms.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t; opt.text = t;
+                selTerm.add(opt);
+            });
+            selTerm.addEventListener('change', render);
+            document.getElementById('ovMetric').addEventListener('change', render);
+            document.getElementById('ovAiBtn').addEventListener('click', runAI);
         }
+
+        render();
     }
 
-    // ------------------ INIT & PUBLIC API ------------------ //
+    function render() {
+        const term = document.getElementById('ovTerm').value;
+        const metric = document.getElementById('ovMetric').value; // quality or average
 
-    function initDom() {
-        termSelect = document.getElementById("overview-term-select");
-        metricSelect = document.getElementById("overview-metric-select");
-        kpiStudentsEl = document.getElementById("overview-kpi-students");
-        kpiTeachersEl = document.getElementById("overview-kpi-teachers");
-        gradeTableEl = document.getElementById("overview-grade-table");
-        donutEl = document.getElementById("overview-donut");
-        aiBtn = document.getElementById("btn-overview-ai");
-        aiOutput = document.getElementById("overview-ai-output");
+        // Filter rows
+        let data = SBI.state.processedGrades;
+        if (term !== 'ALL') {
+            data = data.filter(r => r.term_id === term);
+        }
 
-        if (metricSelect) {
-            // если разметка уже содержит options — оставляем их
-            if (!metricSelect.options.length) {
-                const opt1 = document.createElement("option");
-                opt1.value = METRIC_KNOWLEDGE;
-                opt1.textContent = "Качество знаний";
-                metricSelect.appendChild(opt1);
+        // 1. KPIs
+        document.getElementById('kpiStudents').innerText = SBI.state.students.length;
+        document.getElementById('kpiTeachers').innerText = SBI.state.teachers.length;
 
-                const opt2 = document.createElement("option");
-                opt2.value = METRIC_AVG;
-                opt2.textContent = "Средняя оценка";
-                metricSelect.appendChild(opt2);
+        // 2. Grade Level Table (1-11 vs Terms)
+        renderGradeTable(term, metric);
+
+        // 3. School Donut (Statuses)
+        renderStatusDonut(term);
+    }
+
+    function renderGradeTable(selectedTerm, metric) {
+        const container = document.getElementById('ovGradeTable');
+        // Grades 1 to 11. Terms as columns (or if Term selected, just that term? Prompt says "by term for each grade").
+        // Let's show all terms in columns to show progress.
+        
+        const terms = [...new Set(SBI.state.processedGrades.map(r => r.term_id))].sort();
+        const levels = [1,2,3,4,5,6,7,8,9,10,11];
+
+        let html = `<table><thead><tr><th>Параллель</th>`;
+        terms.forEach(t => html += `<th>${t}</th>`);
+        html += `</tr></thead><tbody>`;
+
+        levels.forEach(lvl => {
+            html += `<tr><td><b>${lvl} Классы</b></td>`;
+            terms.forEach(t => {
+                // Filter: Classes starting with lvl + Term
+                const subset = SBI.state.processedGrades.filter(r => {
+                    // Class ID logic: K-1A -> starts with 'K-1' but we need to be careful about K-11 vs K-1
+                    // Parse int from class name
+                    const cName = SBI.state.classes.find(c => c.class_id === r.class_id)?.class_name || "";
+                    return parseInt(cName) === lvl && r.term_id === t;
+                });
+
+                const val = calculateMetric(subset, metric);
+                const color = getCellColor(val, metric);
+                html += `<td style="background:${color}">${val !== null ? val : '-'}</td>`;
+            });
+            html += `</tr>`;
+        });
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+    }
+
+    function renderStatusDonut(term) {
+        // Aggregation of Student Statuses
+        // If term is ALL, we might pick latest, or average? Status is term-specific. 
+        // Let's use unique (Student, Term) keys if ALL, but donut usually shows snapshot. 
+        // For ALL, let's just count all term-statuses (sum of instances).
+        
+        const counts = { 'Отличник': 0, 'Хорошист': 0, 'Троечник': 0, 'Двоечник': 0 };
+        
+        Object.entries(SBI.state.studentStatuses).forEach(([key, status]) => {
+            const [sid, t] = key.split('|');
+            if (term === 'ALL' || t === term) {
+                if (counts[status] !== undefined) counts[status]++;
             }
-            metricSelect.addEventListener("change", update);
-        }
-
-        if (aiBtn) {
-            aiBtn.addEventListener("click", onAIButtonClick);
-        }
-
-        log("[OverviewDashboard] init complete");
-    }
-
-    function populateTermSelect() {
-        if (!termSelect) return;
-
-        const terms = state.allTerms || [];
-        termSelect.innerHTML = "";
-
-        const optAll = document.createElement("option");
-        optAll.value = "ALL";
-        optAll.textContent = "Все четверти";
-        termSelect.appendChild(optAll);
-
-        terms.forEach(t => {
-            const opt = document.createElement("option");
-            opt.value = t;
-            opt.textContent = t;
-            termSelect.appendChild(opt);
         });
 
-        termSelect.value = "ALL";
-        termSelect.addEventListener("change", update);
+        const values = [counts['Отличник'], counts['Хорошист'], counts['Троечник'], counts['Двоечник']];
+        const labels = ['Отличники', 'Хорошисты', 'Троечники', 'Двоечники'];
+        const colors = [SBI.colors.grade5, SBI.colors.grade4, SBI.colors.grade3, SBI.colors.grade2];
+
+        Plotly.newPlot('ovDonut', [{
+            values: values,
+            labels: labels,
+            type: 'pie',
+            marker: { colors: colors },
+            hole: 0.4,
+            textinfo: 'label+percent'
+        }], { margin: { t: 0, b: 0, l: 0, r: 0 } });
     }
 
-    function onDataLoaded() {
-        initDom();
-
-        const rows = state.allRows || [];
-        if (!rows.length) {
-            log("[OverviewDashboard] onDataLoaded: нет данных allRows");
-            const root = document.getElementById("overview-summary");
-            if (root) {
-                root.textContent = "Данные ещё не загружены.";
-            }
-            return;
+    // Helpers
+    function calculateMetric(rows, type) {
+        if (rows.length === 0) return null;
+        if (type === 'average') {
+            const sum = rows.reduce((a,b) => a + b.grade, 0);
+            return (sum / rows.length).toFixed(2);
+        } else {
+            // Quality: (4s + 5s) / All
+            const good = rows.filter(r => r.grade >= 4).length;
+            return ((good / rows.length) * 100).toFixed(1) + '%';
         }
-
-        populateTermSelect();
-        update();
     }
 
-    // инициализация DOM сразу, если страница уже готова
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", initDom);
-    } else {
-        initDom();
+    function getCellColor(val, type) {
+        if (!val) return 'transparent';
+        let num = parseFloat(val);
+        if (type === 'quality') {
+            // 0-100 gradient
+            if (num >= 70) return 'rgba(46, 204, 113, 0.3)'; // Good
+            if (num >= 50) return 'rgba(241, 196, 15, 0.3)'; // Mid
+            return 'rgba(231, 76, 60, 0.3)'; // Bad
+        } else {
+            // 2-5 gradient
+            if (num >= 4.5) return 'rgba(46, 204, 113, 0.3)';
+            if (num >= 3.5) return 'rgba(52, 152, 219, 0.3)';
+            if (num >= 2.5) return 'rgba(241, 196, 15, 0.3)';
+            return 'rgba(231, 76, 60, 0.3)';
+        }
     }
 
-    return {
-        onDataLoaded: onDataLoaded
-    };
+    async function runAI() {
+        const box = document.getElementById('ovAiResult');
+        const txt = document.getElementById('ovAiText');
+        box.style.display = 'block';
+        txt.innerHTML = 'Генерация анализа...';
+        
+        // Prepare context
+        const stats = {
+            students: SBI.state.students.length,
+            teachers: SBI.state.teachers.length,
+            // Add more summary stats here
+        };
+        
+        const prompt = `Проанализируй статистику школы: ${JSON.stringify(stats)}. Дай краткий обзор успеваемости.`;
+        
+        // Call LLM (Assuming global wrapper)
+        if (window.SBI_LLM) {
+            const result = await window.SBI_LLM.interpret(prompt);
+            txt.innerHTML = result;
+        } else {
+            txt.innerHTML = "Модуль ИИ не загружен.";
+        }
+    }
+
+    return { update };
 })();

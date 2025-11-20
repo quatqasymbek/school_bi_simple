@@ -2,34 +2,30 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8" />
-    <title>Школьная аналитика (BI)</title>
+    <title>Школьная Аналитика (BI)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <!-- Styles -->
+    <!-- External Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+
     <style>
+        /* RESET & BASE */
         :root {
-            --primary: #123b71;
-            --bg: #f4f7f6;
-            --card-bg: #ffffff;
-            --text: #333;
-            --border: #dde2e5;
+            --primary: #2c3e50;
             --accent: #3498db;
+            --bg: #f4f7f6;
+            --white: #ffffff;
+            --text: #333;
+            --border: #ddd;
         }
         * { box-sizing: border-box; }
+        body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
 
-        body {
-            margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
-
+        /* HEADER */
         header {
             background: var(--primary);
-            color: #fff;
+            color: var(--white);
             padding: 0 20px;
             height: 60px;
             display: flex;
@@ -38,423 +34,248 @@
             flex-shrink: 0;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        header h1 { font-size: 1.2rem; margin: 0; font-weight: 600; }
-
-        .controls-area {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        nav { flex-grow: 1; margin: 0 20px; }
-        nav ul {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-            display: flex;
-            gap: 15px;
-        }
-        .tab-link {
-            padding: 10px 15px;
-            text-decoration: none;
-            color: rgba(255,255,255,0.7);
-            font-weight: 500;
-            transition: all 0.3s;
-            border-radius: 4px;
-        }
-        .tab-link:hover { color: #fff; background: rgba(255,255,255,0.1); }
-        .tab-link.active { color: #fff; background: rgba(0,0,0,0.2); }
-
-        main {
-            flex-grow: 1;
-            overflow-y: auto;
-            padding: 20px;
-        }
-
-        .page {
-            display: none;
-            height: 100%;
-            padding-bottom: 30px; /* Space for scroll */
-        }
-        .page.active {
-            display: block;
-        }
-
-        .card {
-            background: var(--card-bg);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-            margin-bottom: 20px;
-            border: 1px solid var(--border);
-        }
-
-        h2 { color: var(--primary); font-size: 1.5rem; border-bottom: 2px solid var(--border); padding-bottom: 10px; margin-top: 0; }
-        h3 { color: var(--accent); font-size: 1.2rem; margin-top: 0; }
-
-        .kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        .kpi-card {
-            text-align: center;
-            padding: 15px;
-            border-radius: 8px;
-            background: #eef;
-        }
-        .kpi-value {
-            font-size: 2.5rem;
-            font-weight: bold;
-            color: var(--primary);
-        }
-        .kpi-label {
-            font-size: 0.9rem;
-            color: #666;
-            margin-top: -5px;
-        }
-
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 15px;
-            font-size: 0.9rem;
-        }
-        .data-table th, .data-table td {
-            border: 1px solid var(--border);
-            padding: 10px;
-            text-align: right;
-        }
-        .data-table th {
-            background: var(--primary);
-            color: #fff;
-            text-align: center;
-            font-weight: 600;
-        }
-        .data-table tbody tr:nth-child(even) {
-            background: #f9f9f9;
-        }
+        header h1 { font-size: 1.4rem; font-weight: 600; margin: 0; }
         
-        .controls {
-            display: flex;
-            gap: 15px;
-            align-items: center;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-        .controls label {
-            font-weight: 500;
-            color: #555;
-            flex-shrink: 0;
-        }
-        .controls select, .controls button {
-            padding: 8px 12px;
-            border-radius: 6px;
-            border: 1px solid var(--border);
-            background: #fff;
-            cursor: pointer;
-            transition: border-color 0.2s, background-color 0.2s;
-        }
-        .controls button {
-            background: var(--accent);
+        /* CONTROLS (Hardcoded Upload Button) */
+        .header-controls { display: flex; gap: 10px; }
+        .btn-upload {
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.3);
             color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        .btn-upload:hover { background: rgba(255,255,255,0.3); }
+
+        /* NAVIGATION */
+        .tabs {
+            background: var(--white);
+            padding: 0 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 5px;
+            flex-shrink: 0;
+            overflow-x: auto;
+        }
+        .tab-btn {
+            padding: 12px 20px;
+            background: none;
             border: none;
+            border-bottom: 3px solid transparent;
+            font-size: 1rem;
+            color: #666;
+            cursor: pointer;
+            white-space: nowrap;
         }
-        .controls button:hover {
-            background: #2980b9;
-        }
+        .tab-btn:hover { background: #f9f9f9; color: var(--primary); }
+        .tab-btn.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+        /* MAIN CONTENT */
+        main { flex: 1; overflow-y: auto; padding: 20px; }
+        .page { display: none; animation: fadeIn 0.3s; }
+        .page.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* UI COMPONENTS */
+        .card { background: var(--white); border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        h2 { margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; font-size: 1.3rem; color: var(--primary); }
+        h3 { font-size: 1.1rem; color: #555; margin-bottom: 15px; }
+
+        .filters { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; background: #f8f9fa; padding: 10px; border-radius: 6px; }
+        select, button.action-btn { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; }
+        button.action-btn { background: var(--accent); color: white; border: none; cursor: pointer; }
+        button.action-btn:hover { opacity: 0.9; }
+
+        /* KPIS */
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .kpi-box { background: #fff; border: 1px solid #eee; padding: 15px; border-radius: 6px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .kpi-val { font-size: 2rem; font-weight: bold; color: var(--accent); }
+        .kpi-lbl { font-size: 0.9rem; color: #777; text-transform: uppercase; margin-top: 5px; }
+
+        /* TABLES */
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th, td { padding: 10px; border: 1px solid #eee; text-align: center; }
+        th { background: #f4f4f4; font-weight: 600; color: #333; }
+        td { color: #555; }
         
-        /* Plotly Chart Styling */
-        .chart-container {
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: var(--card-bg);
-            padding: 10px;
-            margin-bottom: 20px;
-        }
-        
-        /* Responsive adjustments */
-        @media (max-width: 768px) {
-            header { padding: 0 10px; height: 100px; flex-wrap: wrap; }
-            header h1 { width: 100%; text-align: center; margin-bottom: 5px; }
-            nav { margin: 0; width: 100%; justify-content: center; }
-            nav ul { justify-content: center; }
-            .tab-link { padding: 5px 8px; font-size: 0.9rem; }
-            main { padding: 10px; }
-            .kpi-grid { grid-template-columns: 1fr; }
-        }
-        
+        /* UTILS */
+        .hidden-input { display: none; }
+        .status-good { color: #27ae60; font-weight: bold; }
+        .status-bad { color: #c0392b; font-weight: bold; }
     </style>
 </head>
 <body>
 
-<header>
-    <h1>Школьная аналитика (BI)</h1>
-    <nav>
-        <ul>
-            <li><a href="#" class="tab-link active" data-page="overview">Обзор</a></li>
-            <li><a href="#" class="tab-link" data-page="attendance">Посещаемость</a></li>
-            <li><a href="#" class="tab-link" data-page="class-dashboard">По классам</a></li>
-            <li><a href="#" class="tab-link" data-page="subject-dashboard">По предметам</a></li>
-            <li><a href="#" class="tab-link" data-page="teacher-dashboard">По учителям</a></li>
-            <li><a href="#" class="tab-link" data-page="student-dashboard">По ученикам</a></li>
-        </ul>
-    </nav>
-    <div id="header-controls" class="controls-area">
-        <!-- Upload button injected here by main.js -->
+    <header>
+        <h1>📊 Школьная Платформа</h1>
+        <div class="header-controls">
+            <!-- HARDCODED BUTTON - WILL NOT DISAPPEAR -->
+            <button class="btn-upload" onclick="document.getElementById('fileLoader').click()">
+                📂 Загрузить Excel/CSV
+            </button>
+            <input type="file" id="fileLoader" class="hidden-input" multiple accept=".csv,.xlsx">
+        </div>
+    </header>
+
+    <div class="tabs">
+        <button class="tab-btn active" data-target="page-overview">Обзор</button>
+        <button class="tab-btn" data-target="page-classes">Классы</button>
+        <button class="tab-btn" data-target="page-students">Ученики</button>
+        <button class="tab-btn" data-target="page-teachers">Учителя</button>
+        <button class="tab-btn" data-target="page-subjects">Предметы</button>
+        <button class="tab-btn" data-target="page-attendance">Посещаемость</button>
     </div>
-</header>
 
-<main>
-    <!-- 1. Обзор школы -->
-    <div id="overview" class="page active">
-        <h2>Обзор успеваемости</h2>
-        <div class="controls">
-            <label for="ovTermSelect">Четверть:</label>
-            <select id="ovTermSelect"></select>
+    <main>
+        <!-- PAGE: OVERVIEW -->
+        <div id="page-overview" class="page active">
+            <div class="filters">
+                <label>Четверть: <select id="ovTerm"></select></label>
+                <label>Метрика: <select id="ovMetric"><option value="quality">Качество знаний</option><option value="avg">Средняя оценка</option></select></label>
+            </div>
             
-            <label for="ovMetricSelect">Метрика:</label>
-            <select id="ovMetricSelect">
-                <option value="knowledge_quality">Качество знаний (5-бал. шкала)</option>
-                <option value="avg_mark">Средний балл (%)</option>
-            </select>
-        </div>
-        
-        <div class="kpi-grid" id="overview-summary">
-            <div class="kpi-card"><div class="kpi-value" id="kpi-students">0</div><div class="kpi-label">Всего учеников</div></div>
-            <div class="kpi-card"><div class="kpi-value" id="kpi-teachers">0</div><div class="kpi-label">Всего учителей</div></div>
-            <div class="kpi-card"><div class="kpi-value" id="kpi-avg-mark">0.0%</div><div class="kpi-label">Средний балл школы</div></div>
-            <div class="kpi-card"><div class="kpi-value" id="kpi-knowledge">0.0%</div><div class="kpi-label">Качество знаний</div></div>
-        </div>
+            <div class="kpi-grid">
+                <div class="kpi-box"><div class="kpi-val" id="kpi-total-students">0</div><div class="kpi-lbl">Учеников</div></div>
+                <div class="kpi-box"><div class="kpi-val" id="kpi-total-teachers">0</div><div class="kpi-lbl">Учителей</div></div>
+                <div class="kpi-box"><div class="kpi-val" id="kpi-metric-val">-</div><div class="kpi-lbl">Показатель школы</div></div>
+            </div>
 
-        <div class="chart-container" style="display:flex; gap: 20px;">
-            <div id="chart-overview-donut" style="flex: 1;"></div>
-            <div style="flex: 1; padding: 20px;">
-                <h3>Искусственный Интеллект</h3>
-                <p>Получите анализ текущего среза данных (KPI, рейтинг классов, распределение оценок) в виде краткого отчета.</p>
-                <button id="ai-insight-btn" class="controls-button">🤖 Сгенерировать инсайт</button>
-                <div id="ai-output" style="margin-top: 15px; padding: 10px; border: 1px dashed #ccc; border-radius: 6px; min-height: 100px; background: #fcfcfc; white-space: pre-wrap; font-size: 0.95rem; color: #333;">
-                    Нажмите кнопку, чтобы начать анализ.
+            <div class="card">
+                <h2>Общая статистика</h2>
+                <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+                    <div style="flex: 2; min-width: 300px;">
+                        <h3>Успеваемость по параллелям (1-11)</h3>
+                        <div class="table-wrap" id="ovGradeTable"></div>
+                    </div>
+                    <div style="flex: 1; min-width: 300px;">
+                        <h3>Статус учащихся</h3>
+                        <div id="ovDonut" style="height: 300px;"></div>
+                    </div>
                 </div>
             </div>
-        </div>
-
-        <div class="card">
-            <h3>Рейтинг классов</h3>
-            <div id="overview-grade-table">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Класс</th>
-                            <th>Учеников</th>
-                            <th>Средний балл</th>
-                            <th>Качество знаний</th>
-                        </tr>
-                    </thead>
-                    <tbody id="overview-table-body">
-                        <!-- Data rows injected here -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-    
-    <!-- 2. Посещаемость -->
-    <div id="attendance" class="page">
-        <h2>Анализ посещаемости</h2>
-        
-        <div class="card">
-            <h3>Общая статистика по четвертям</h3>
-            <div class="controls">
-                <label for="attTermSummary">Четверть:</label>
-                <select id="attTermSummary"></select>
-            </div>
-            <div id="attSummaryTableWrapper">
-                <!-- Summary Table Injected Here -->
-            </div>
-        </div>
-
-        <div class="card">
-            <h3>Детализация по классам и ученикам</h3>
-            <div class="controls">
-                <label for="attTermDetail">Четверть:</label>
-                <select id="attTermDetail"></select>
-                <label for="attClassDetail">Класс:</label>
-                <select id="attClassDetail"></select>
-            </div>
-            <div id="attDetailTableWrapper">
-                <!-- Detail Table Injected Here -->
-            </div>
-        </div>
-
-    </div>
-
-    <!-- 3. По классам -->
-    <div id="class-dashboard" class="page">
-        <h2>Аналитика по классу</h2>
-        
-        <div class="card">
-            <h3>Сводка по классу (Показатели)</h3>
-            <div class="controls">
-                <label for="clsTableTermSelect">Четверть:</label>
-                <select id="clsTableTermSelect"></select>
-                <label for="clsTableMetricSelect">Метрика:</label>
-                <select id="clsTableMetricSelect">
-                    <option value="knowledge_quality">Качество знаний</option>
-                    <option value="avg_mark">Средний балл (%)</option>
-                </select>
-            </div>
-            <div id="class-summary-table-wrapper">
-                <table class="data-table">
-                    <thead id="class-summary-header">
-                        <!-- Table header injected here -->
-                    </thead>
-                    <tbody id="class-summary-body">
-                        <!-- Table body injected here -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="card">
-            <h3>Распределение учеников по успеваемости</h3>
-            <div class="controls">
-                <label for="clsDonutTermSelect">Четверть:</label>
-                <select id="clsDonutTermSelect"></select>
-                <label for="clsDonutClassSelect">Класс:</label>
-                <select id="clsDonutClassSelect"></select>
-            </div>
-            <div id="chart-class-donut" class="chart-container">
-                <!-- Plotly Donut Chart injected here -->
-            </div>
-        </div>
-    </div>
-
-    <!-- 4. По предметам -->
-    <div id="subject-dashboard" class="page">
-        <h2>Аналитика по предметам</h2>
-        
-        <div class="controls">
-            <label for="subjectSubjectSelect">Предмет:</label>
-            <select id="subjectSubjectSelect"></select>
-            <label for="subjectTermSelect">Четверть:</label>
-            <select id="subjectTermSelect"></select>
-        </div>
-
-        <div class="chart-container" id="chart-subject-class">
-            <!-- Subject by Class Bar Chart -->
-        </div>
-
-        <div class="chart-container" id="chart-subject-dist">
-            <!-- Grade Distribution Histogram -->
-        </div>
-        
-        <div class="chart-container" id="chart-subject-trend">
-            <!-- Subject Trend Line Chart -->
-        </div>
-
-        <div class="chart-container" id="chart-subject-heatmap">
-            <!-- Subject-Term Heatmap -->
-        </div>
-    </div>
-    
-    <!-- 5. По учителям -->
-    <div id="teacher-dashboard" class="page">
-        <h2>Аналитика по учителям</h2>
-        <div class="controls">
-            <label for="teacherTeacherSelect">Учитель:</label>
-            <select id="teacherTeacherSelect"></select>
-            <label for="teacherTermSelect">Четверть:</label>
-            <select id="teacherTermSelect"></select>
-            <button id="teacherRefreshBtn" onclick="window.SBI_Teacher.update()">Обновить</button>
-        </div>
-        
-        <div class="card">
-            <h3>Сводка успеваемости (общий срез)</h3>
-            <div id="chart-teacher-summary" class="chart-container">
-                <!-- Plotly Summary Bar Chart injected here -->
-            </div>
-        </div>
-        
-        <div class="card">
-            <h3>Детализация по предметам и классам</h3>
-            <div id="chart-teacher-breakdown" class="chart-container">
-                <!-- Plotly Breakdown Bar Chart injected here -->
-            </div>
-        </div>
-    </div>
-    
-    <!-- 6. По ученикам -->
-    <div id="student-dashboard" class="page">
-        <h2>Сводная таблица по ученикам</h2>
-        <div class="controls">
-            <label for="stClassSelect">Класс:</label>
-            <select id="stClassSelect"></select>
-            <label for="stTermSelect">Четверть:</label>
-            <select id="stTermSelect"></select>
-            <button id="stRefreshBtn">Показать</button>
-        </div>
-        <div id="stTableWrapper" class="card">
-            <!-- Student Table Injected Here -->
-        </div>
-    </div>
-    
-
-</main>
-
-<!-- Scripts -->
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
-
-<!-- App Logic -->
-<script src="utils.js"></script>
-<script src="main.js"></script>
-<script src="llm_cpu.js"></script>
-<script src="overview.js"></script>
-<script src="overview_ai.js"></script>
-<script src="attendance.js"></script>
-<script src="dashboard_class.js"></script>
-<script src="dashboard_subject.js"></script>
-<script src="dashboard_teacher.js"></script> <!-- ADDED -->
-<script src="dashboard_student.js"></script> <!-- ADDED -->
-
-<script>
-    // Tab Switching Logic
-    document.addEventListener('DOMContentLoaded', () => {
-        const links = document.querySelectorAll('.tab-link');
-        const pages = document.querySelectorAll('.page');
-
-        function activatePage(pageId) {
-            pages.forEach(p => p.classList.remove('active'));
-            links.forEach(l => l.classList.remove('active'));
             
-            const activePage = document.getElementById(pageId);
-            const activeLink = document.querySelector(`.tab-link[data-page="${pageId}"]`);
-            
-            if (activePage) activePage.classList.add('active');
-            if (activeLink) activeLink.classList.add('active');
-        }
+            <div class="card">
+                <h2>🤖 ИИ-Интерпретация</h2>
+                <button class="action-btn" id="aiBtn">Сгенерировать анализ</button>
+                <div id="aiOutput" style="margin-top:15px; padding:15px; background:#f0f7ff; border-radius:4px; min-height:50px; color:#444;">Нажмите кнопку для анализа...</div>
+            </div>
+        </div>
 
-        links.forEach(link => {
-            link.addEventListener('click', (e) => {
-                e.preventDefault();
-                activatePage(link.getAttribute('data-page'));
+        <!-- PAGE: CLASSES -->
+        <div id="page-classes" class="page">
+            <div class="filters">
+                <label>Метрика: <select id="clMetric"><option value="quality">Качество знаний</option><option value="avg">Средняя оценка</option></select></label>
+            </div>
+            <div class="card">
+                <h2>Рейтинг классов</h2>
+                <div class="table-wrap" id="clTable"></div>
+            </div>
+            <div class="filters">
+                <label>Класс: <select id="clSelect"></select></label>
+                <label>Четверть: <select id="clTerm"></select></label>
+            </div>
+            <div class="card">
+                <h3>Детализация успеваемости класса</h3>
+                <div id="clDonut" style="height: 350px;"></div>
+            </div>
+        </div>
+
+        <!-- PAGE: STUDENTS -->
+        <div id="page-students" class="page">
+            <div class="filters">
+                <label>Класс: <select id="stClass"></select></label>
+                <label>Четверть: <select id="stTerm"></select></label>
+                <button class="action-btn" id="stLoadBtn">Показать</button>
+            </div>
+            <div class="card">
+                <h2>Ведомость успеваемости</h2>
+                <div class="table-wrap" id="stTable"></div>
+            </div>
+        </div>
+
+        <!-- PAGE: TEACHERS -->
+        <div id="page-teachers" class="page">
+             <div class="filters">
+                <label>Четверть: <select id="tcTerm"></select></label>
+                <label>Метрика: <select id="tcMetric"><option value="quality">Качество знаний</option><option value="avg">Средняя оценка</option></select></label>
+            </div>
+            <div class="card" style="display:flex; gap:20px;">
+                <div style="flex:1;">
+                    <h3>Квалификация педагогов</h3>
+                    <div id="tcQualDonut" style="height:300px;"></div>
+                </div>
+                <div style="flex:1;">
+                    <h3>Успеваемость у учителя</h3>
+                    <select id="tcTeacherSel" style="width:100%; margin-bottom:10px;"></select>
+                    <div id="tcIndDonut" style="height:260px;"></div>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Эффективность учителей</h2>
+                <div class="table-wrap" id="tcTable"></div>
+            </div>
+        </div>
+
+        <!-- PAGE: SUBJECTS -->
+        <div id="page-subjects" class="page">
+            <div class="filters">
+                <label>Четверть: <select id="sbTerm"></select></label>
+                <label>Метрика: <select id="sbMetric"><option value="quality">Качество знаний</option><option value="avg">Средняя оценка</option></select></label>
+            </div>
+            <div class="card">
+                <h2>Рейтинг предметов</h2>
+                <div id="sbChart" style="height: 400px;"></div>
+            </div>
+            <div class="card">
+                <h2>Тепловая карта (Предметы vs Классы)</h2>
+                <div id="sbHeatmap" style="height: 500px;"></div>
+            </div>
+        </div>
+
+        <!-- PAGE: ATTENDANCE -->
+        <div id="page-attendance" class="page">
+            <div class="filters">
+                <label>Четверть: <select id="atTerm"></select></label>
+            </div>
+            <div class="card">
+                <h2>Посещаемость по классам</h2>
+                <div class="table-wrap" id="atClassTable"></div>
+            </div>
+            <div class="filters">
+                <label>Класс: <select id="atClassSel"></select></label>
+            </div>
+            <div class="card">
+                <h2>Детализация по ученикам</h2>
+                <div class="table-wrap" id="atStudentTable"></div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Logic Scripts -->
+    <script src="main.js"></script>
+    <script src="dashboard_overview.js"></script>
+    <script src="dashboard_class.js"></script>
+    <script src="dashboard_student.js"></script>
+    <script src="dashboard_teacher.js"></script>
+    <script src="dashboard_subject.js"></script>
+    <script src="attendance.js"></script>
+    <script src="llm_cpu.js"></script>
+
+    <script>
+        // Simple Tab Logic
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.target).classList.add('active');
             });
         });
-        
-        // Initial activation
-        activatePage('overview');
-        
-        // Initialize all modules that require explicit init()
-        if (window.SBI_Overview && window.SBI_Overview.init) window.SBI_Overview.init();
-        if (window.SBI_Attendance && window.SBI_Attendance.init) window.SBI_Attendance.init();
-        if (window.SBI_Class && window.SBI_Class.init) window.SBI_Class.init();
-        if (window.SBI_Subject && window.SBI_Subject.init) window.SBI_Subject.init();
-        if (window.SBI_Teacher && window.SBI_Teacher.init) window.SBI_Teacher.init(); // Now safe to call
-        if (window.SBI_Students && window.SBI_Students.init) window.SBI_Students.init();
-    });
-</script>
-
+    </script>
 </body>
 </html>

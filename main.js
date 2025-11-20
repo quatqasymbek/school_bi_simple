@@ -15,17 +15,7 @@ SBI.state = {
     subjects: [],
     terms: [],
     weights: {}, // Weights map
-    gradingScale: [], // 5-point scale rules
-    // Data from CSV
-    rawGrades: [],
-    rawAttendance: [],
-    rawClasses: [],
-    rawTerms: [],
-    rawStudents: [],
-    rawTeachers: [],
-    rawTeacherAssignments: [],
-    rawSubjects: [],
-    rawEnrollments: [],
+    gradingScale: [] // 5-point scale rules
 };
 
 // ==========================================
@@ -47,125 +37,226 @@ function parsePercent(val) {
 
 // Convert 0-100 score to 5-point scale based on rules
 function convertTo5Scale(score, scaleRules) {
-    if (score == null) return null;
-    // Sort rules from highest pct_min to lowest to ensure correct mapping
-    const sortedRules = scaleRules.slice().sort((a, b) => b.pct_min - a.pct_min);
-    
-    for (const rule of sortedRules) {
-        if (score >= rule.pct_min) {
-            return rule.grade_5pt;
-        }
+    if (score == null || score === "" || !scaleRules || scaleRules.length === 0) return null;
+    const rule = scaleRules.find(r => score >= r.pct_min && score <= r.pct_max);
+    return rule ? parseInt(rule.grade_5pt) : null;
+}
+
+// Helper for calculating mean, ignoring nulls/NaNs
+SBI.mean = function (arr) {
+    if (!arr || arr.length === 0) return null;
+    const valid = arr.filter(v => typeof v === 'number' && !isNaN(v));
+    if (valid.length === 0) return null;
+    const sum = valid.reduce((a, b) => a + b, 0);
+    return sum / valid.length;
+};
+
+// Helper for calculating unique values
+SBI.unique = function (arr) {
+    return Array.from(new Set(arr));
+}
+
+SBI.log = console.log;
+
+// ==========================================
+// 3. DATA LOADING
+// ==========================================
+
+// Main function to load and parse files
+SBI.loadData = async function (files) {
+    SBI.state.isProcessing = true;
+    console.log(`Starting data load for ${files.length} files...`);
+
+    const fileMap = {};
+    for (const file of files) {
+        // Filenames are typically "example_excel.xlsx - SHEET_NAME.csv"
+        // We only care about the SHEET_NAME part.
+        let sheetName = file.name.split('-').pop().trim().replace(/\.csv$/i, '').toUpperCase();
+        
+        // Handle names that don't follow the convention perfectly, e.g., 'УЧАЩИЕСЯ.csv'
+        if (sheetName.includes('УЧАЩИЕСЯ') && !sheetName.includes('УЧИТЕЛЯ')) sheetName = 'УЧАЩИЕСЯ';
+        else if (sheetName.includes('ОЦЕНКИ')) sheetName = 'ОЦЕНКИ';
+        else if (sheetName.includes('КЛАССЫ')) sheetName = 'КЛАССЫ';
+        // Add other simple mapping rules if needed
+
+        fileMap[sheetName] = file;
     }
-    return null; // Should not happen if 0-54 rule is present
-}
 
-/**
- * Groups raw data by a key.
- * @param {Array<Object>} arr - Array of objects to group.
- * @param {string} key - The property key to group by.
- * @returns {Object<string, Array<Object>>} - Grouped object.
- */
-function groupBy(arr, key) {
-    return arr.reduce((acc, obj) => {
-        const k = obj[key];
-        if (!acc[k]) {
-            acc[k] = [];
+    // 1. Load data from files
+    const loadFile = (key, sheetName) => {
+        const file = fileMap[key];
+        if (!file) {
+            console.warn(`File for sheet '${sheetName}' not found.`);
+            return Promise.resolve([]);
         }
-        acc[k].push(obj);
-        return acc;
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const csv = e.target.result;
+                const workbook = XLSX.read(csv, { type: 'string', raw: true });
+                // Assuming it's a single sheet inside the CSV
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                
+                // Assuming first row is header
+                if (data.length > 0) {
+                    const headers = data[0].map(h => String(h).trim().toLowerCase());
+                    const rows = data.slice(1).map(row => {
+                        const obj = {};
+                        headers.forEach((h, i) => {
+                            obj[h] = row[i];
+                        });
+                        return obj;
+                    });
+                    console.log(`Loaded ${rows.length} rows for sheet: ${sheetName}`);
+                    resolve(rows);
+                } else {
+                    resolve([]);
+                }
+            };
+            reader.readAsText(file, 'UTF-8');
+        });
+    };
+
+    const [
+        students,
+        teachers,
+        classes,
+        subjects,
+        terms,
+        gradingScale,
+        weightsRaw,
+        enrollments,
+        assignments,
+        attendance,
+        grades
+    ] = await Promise.all([
+        loadFile('УЧАЩИЕСЯ', 'УЧАЩИЕСЯ'),
+        loadFile('УЧИТЕЛЯ', 'УЧИТЕЛЯ'),
+        loadFile('КЛАССЫ', 'КЛАССЫ'),
+        loadFile('ПРЕДМЕТЫ', 'ПРЕДМЕТЫ'),
+        loadFile('ЧЕТВЕРТИ', 'ЧЕТВЕРТИ'),
+        loadFile('ШКАЛА_5Б', 'ШКАЛА_5Б'),
+        loadFile('ВЕСА_ОЦЕНОК', 'ВЕСА_ОЦЕНОК'),
+        loadFile('СОСТАВ_КЛАССА', 'СОСТАВ_КЛАССА'),
+        loadFile('НАЗНАЧЕНИЯ_ПРЕПОД', 'НАЗНАЧЕНИЯ_ПРЕПОД'),
+        loadFile('ПОСЕЩАЕМОСТЬ', 'ПОСЕЩАЕМОСТЬ'),
+        loadFile('ОЦЕНКИ', 'ОЦЕНКИ')
+    ]);
+
+    // 2. Map data to state
+    SBI.state.students = students;
+    SBI.state.teachers = teachers;
+    SBI.state.classes = classes;
+    SBI.state.subjects = subjects;
+    SBI.state.terms = terms;
+
+    // Convert grading scale to numbers
+    SBI.state.gradingScale = gradingScale.map(r => ({
+        grade_5pt: parseInt(r.grade_5pt),
+        pct_min: parseInt(r.pct_min),
+        pct_max: parseInt(r.pct_max)
+    }));
+
+    // Convert weights to an easy lookup map
+    SBI.state.weights = weightsRaw.reduce((map, row) => {
+        map[String(row.work_type).toUpperCase().trim()] = parseInt(row.weight_pct) / 100;
+        return map;
     }, {});
-}
+    
+    // Store raw data for later processing/lookups
+    SBI.state.raw = { enrollments, assignments, attendance, grades };
+    
+    // 3. Process grades into analytic rows
+    processGrades(grades);
 
-/**
- * The main data processing pipeline. Calculates final marks.
- */
-function processRawData() {
-    console.log("Processing raw data...");
-    const rawGrades = SBI.state.rawGrades;
-    const weights = SBI.state.weights;
-    const gradingScale = SBI.state.gradingScale;
-    const rawEnrollments = SBI.state.rawEnrollments;
+    // 4. Trigger dashboards to update
+    // Call onDataLoaded on all registered modules
+    if (window.SBI_Overview && window.SBI_Overview.onDataLoaded) window.SBI_Overview.onDataLoaded();
+    if (window.SBI_Attendance && window.SBI_Attendance.onDataLoaded) window.SBI_Attendance.onDataLoaded();
+    if (window.SBI_Class && window.SBI_Class.onDataLoaded) window.SBI_Class.onDataLoaded();
+    if (window.SBI_Subject && window.SBI_Subject.onDataLoaded) window.SBI_Subject.onDataLoaded();
+    if (window.SBI_Teacher && window.SBI_Teacher.onDataLoaded) window.SBI_Teacher.onDataLoaded();
+    if (window.SBI_Students && window.SBI_Students.onDataLoaded) window.SBI_Students.onDataLoaded();
 
-    if (!rawGrades.length) {
-        console.warn("No raw grades found. Skipping final mark calculation.");
+    SBI.state.isProcessing = false;
+    console.log("All data loaded and dashboards updated.");
+};
+
+// ==========================================
+// 4. ANALYTIC ROW CREATION
+// ==========================================
+
+function processGrades(grades) {
+    if (!grades || grades.length === 0) {
+        console.log("No grades to process.");
+        SBI.state.allRows = [];
         return;
     }
-    
-    console.log(`Grading Scale loaded: ${gradingScale.length} rules.`);
-    console.log(`Weights loaded: Object`); // Assuming weights is an object as per snippet
-    
-    // 1. Group grades by Student x Subject x Term (The core analytic unit)
-    const allGroups = {};
-    rawGrades.forEach(g => {
-        // Create a unique key: StudentID|SubjectID|TermID
+
+    const weights = SBI.state.weights;
+    const scale = SBI.state.gradingScale;
+
+    // 1. Group grades by (Student x Subject x Term)
+    const gradeGroups = {};
+    grades.forEach(g => {
         const key = `${g.student_id}|${g.subject_id}|${g.term_id}`;
-        
-        if (!allGroups[key]) {
-            allGroups[key] = {
+        if (!gradeGroups[key]) {
+            gradeGroups[key] = {
                 sid: g.student_id,
                 sub: g.subject_id,
                 term: g.term_id,
-                class_id: g.class_id, // Use class_id from grade
-                grades: []
+                class_id: g.class_id,
+                fo_scores: [],
+                sor_scores: [],
+                soch_scores: []
             };
         }
-        // Ensure percent is a number
-        g.percent = parsePercent(g.percent);
-        g.grade_5pt = convertTo5Scale(g.percent, gradingScale); // Recalculate based on scale for consistency
+        
+        const type = String(g.work_type).toUpperCase().trim();
+        const percent = parsePercent(g.percent || (Number(g.score) / Number(g.max_score)));
+        
+        if (percent == null) return;
 
-        allGroups[key].grades.push(g);
+        if (type === 'ФО') gradeGroups[key].fo_scores.push(percent);
+        else if (type === 'СОР') gradeGroups[key].sor_scores.push(percent);
+        else if (type === 'СОЧ') gradeGroups[key].soch_scores.push(percent);
+        // Note: The input data uses 'percent', so we rely on that. If not present, we use score/max_score.
     });
 
+    // 2. Calculate final weighted score for each group
     const finalRows = [];
+    Object.values(gradeGroups).forEach(group => {
+        const avgFO = SBI.mean(group.fo_scores);
+        const avgSOR = SBI.mean(group.sor_scores);
+        const avgSOCH = SBI.mean(group.soch_scores);
 
-    // 2. Calculate Final Mark for each group
-    Object.values(allGroups).forEach(group => {
-        const grades = group.grades;
-        let totalWeightedScore = 0;
+        let totalPct = 0;
         let totalWeight = 0;
-        
-        let foGrades = [];
-        let sorGrades = [];
-        let sochGrades = [];
 
-        // Group by work type
-        const gradesByType = groupBy(grades, 'work_type');
-
-        // Calculate average for each work type
-        let avgFO = null;
-        if (gradesByType['ФО'] && gradesByType['ФО'].length > 0) {
-            foGrades = gradesByType['ФО'].map(g => g.percent).filter(p => p != null);
-            avgFO = SBI.mean(foGrades);
-            if (avgFO != null) {
-                totalWeightedScore += avgFO * (weights['ФО'] || 0);
-                totalWeight += (weights['ФО'] || 0);
-            }
+        if (avgFO != null && weights['ФО']) {
+            totalPct += avgFO * weights['ФО'];
+            totalWeight += weights['ФО'];
+        }
+        if (avgSOR != null && weights['СОР']) {
+            totalPct += avgSOR * weights['СОР'];
+            totalWeight += weights['СОР'];
+        }
+        if (avgSOCH != null && weights['СОЧ']) {
+            totalPct += avgSOCH * weights['СОЧ'];
+            totalWeight += weights['СОЧ'];
         }
         
-        let avgSOR = null;
-        if (gradesByType['СОР'] && gradesByType['СОР'].length > 0) {
-            sorGrades = gradesByType['СОР'].map(g => g.percent).filter(p => p != null);
-            avgSOR = SBI.mean(sorGrades);
-            if (avgSOR != null) {
-                totalWeightedScore += avgSOR * (weights['СОР'] || 0);
-                totalWeight += (weights['СОР'] || 0);
-            }
+        if (totalWeight === 0) return; // Skip if no weighted scores found
+
+        // Normalize if total weight is not 100% (shouldn't happen with given data, but for safety)
+        if (totalWeight < 1) {
+             totalPct = (totalPct / totalWeight);
         }
 
-        let avgSOCH = null;
-        if (gradesByType['СОЧ'] && gradesByType['СОЧ'].length > 0) {
-            sochGrades = gradesByType['СОЧ'].map(g => g.percent).filter(p => p != null);
-            avgSOCH = SBI.mean(sochGrades);
-            if (avgSOCH != null) {
-                totalWeightedScore += avgSOCH * (weights['СОЧ'] || 0);
-                totalWeight += (weights['СОЧ'] || 0);
-            }
-        }
+        const grade5 = convertTo5Scale(totalPct, scale);
 
-        let totalPct = totalWeight > 0 ? totalWeightedScore / totalWeight : null;
-        let grade5 = totalPct != null ? convertTo5Scale(totalPct, gradingScale) : null;
-
-        // Final analytic row for this Student x Subject x Term
+        // Create the final analytic row
         finalRows.push({
             student_id: group.sid,
             subject_id: group.sub,
@@ -179,192 +270,11 @@ function processRawData() {
         });
     });
 
-    // Merge enrollment class info for non-graded terms/subjects (optional, but good practice)
-    rawEnrollments.forEach(e => {
-        const key = `${e.student_id}|${e.term_id}`; // Simpler key for enrollment
-        const hasFinalRow = finalRows.some(r => r.student_id === e.student_id && r.term === e.term_id);
-        
-        if (!hasFinalRow) {
-            // No grades but enrolled. Add a minimal row for counting/attendance analysis.
-            // Note: This row will lack subject info, making it less useful for subject dashboards,
-            // but confirms the student/term/class is known.
-            // We'll rely more on rawEnrollments directly for basic student lists.
-        }
-    });
-
     SBI.state.allRows = finalRows;
     SBI.state.allTerms = SBI.unique(finalRows.map(r => r.term));
-    SBI.state.allSubjects = SBI.unique(finalRows.map(r => r.subject_id))
-        .map(subId => {
-            const subject = SBI.state.rawSubjects.find(s => s.subject_id === subId);
-            return subject ? subject.subject_name : subId;
-        });
     
     console.log(`Data Processed: ${finalRows.length} analytic rows created.`);
 }
-
-// ==========================================
-// 3. DASHBOARD UPDATE TRIGGER (THE FIX)
-// ==========================================
-
-/**
- * Triggers all dashboard components to load and render the new data.
- */
-SBI.triggerDashboardUpdates = function() {
-    console.log("Triggering Dashboard Updates...");
-
-    // 1. Overview Dashboard (Overview.js/dashboard_overview.js)
-    if (window.SBI_Overview && window.SBI_Overview.onDataLoaded) {
-        window.SBI_Overview.onDataLoaded();
-    }
-    
-    // 2. Class Dashboard (dashboard_class.js)
-    if (window.SBI_Class && window.SBI_Class.onDataLoaded) {
-        window.SBI_Class.onDataLoaded();
-    }
-    
-    // 3. Subject Dashboard (dashboard_subject.js)
-    if (window.SBI_Subject && window.SBI_Subject.onDataLoaded) {
-        window.SBI_Subject.onDataLoaded();
-    }
-
-    // 4. Teacher Dashboard (dashboard_teacher.js)
-    if (window.SBI_Teacher && window.SBI_Teacher.onDataLoaded) {
-        window.SBI_Teacher.onDataLoaded();
-    }
-
-    // 5. Student Dashboard (dashboard_student.js)
-    if (window.SBI_Students && window.SBI_Students.onDataLoaded) {
-        // Must ensure it's initialized first (it wasn't self-initializing in its snippet)
-        window.SBI_Students.init(); 
-        window.SBI_Students.onDataLoaded();
-    }
-
-    // 6. Attendance Dashboard (attendance.js)
-    if (window.SBI_Attendance && window.SBI_Attendance.onDataLoaded) {
-        // attendance.js needs to know the enrollment data for total students
-        window.SBI_Attendance.onDataLoaded();
-    }
-    
-    // Also re-trigger the default active tab render
-    const activeLink = document.querySelector('.tab-link.active');
-    if (activeLink) {
-        const pageId = activeLink.getAttribute('data-page');
-        const event = new CustomEvent('DOMContentLoaded');
-        document.dispatchEvent(event); // Reruns the tab activation logic
-    }
-};
-
-
-// ==========================================
-// 4. DATA LOADER (Simplified for CSV)
-// ==========================================
-
-const FILE_MAP = {
-    // Grade and Weights
-    'ОЦЕНКИ': 'rawGrades',
-    'ВЕСА_ОЦЕНОК': 'weights',
-    'ШКАЛА_5Б': 'gradingScale',
-    // Reference Data
-    'УЧАЩИЕСЯ': 'rawStudents',
-    'УЧИТЕЛЯ': 'rawTeachers',
-    'КЛАССЫ': 'rawClasses',
-    'ПРЕДМЕТЫ': 'rawSubjects',
-    'ЧЕТВЕРТИ': 'rawTerms',
-    'СОСТАВ_КЛАССА': 'rawEnrollments',
-    'НАЗНАЧЕНИЯ_ПРЕПОД': 'rawTeacherAssignments',
-    // Other Data
-    'ПОСЕЩАЕМОСТЬ': 'rawAttendance',
-};
-
-// Global loadData function exposed to button listener
-SBI.loadData = async function (files) {
-    console.log(`Attempting to load ${files.length} files...`);
-
-    const promises = Array.from(files).map(file => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
-                    
-                    // Assuming the file name includes the sheet name (e.g., 'example_excel.xlsx - ОЦЕНКИ.csv')
-                    const fileNameBase = file.name.toUpperCase();
-                    
-                    let sheetName = null;
-                    for (const key in FILE_MAP) {
-                        if (fileNameBase.includes(key)) {
-                            sheetName = key;
-                            break;
-                        }
-                    }
-
-                    if (!sheetName) {
-                        console.warn(`File ${file.name} ignored: Sheet name not recognized.`);
-                        return resolve(null);
-                    }
-                    
-                    // Assume the first sheet is the one to use
-                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const json = XLSX.utils.sheet_to_json(sheet);
-
-                    console.log(`Sheet loaded: ${sheetName}`);
-                    
-                    resolve({ sheetName: sheetName, data: json });
-
-                } catch (error) {
-                    console.error(`Error processing file ${file.name}:`, error);
-                    reject(error);
-                }
-            };
-            reader.onerror = (error) => {
-                console.error(`File read error for ${file.name}:`, error);
-                reject(error);
-            };
-            reader.readAsArrayBuffer(file);
-        });
-    });
-
-    const results = await Promise.all(promises);
-    let loadedCount = 0;
-
-    results.filter(r => r).forEach(result => {
-        loadedCount++;
-        const key = FILE_MAP[result.sheetName];
-
-        if (key === 'gradingScale' || key === 'rawClasses' || key === 'rawSubjects' || key === 'rawTerms' || key === 'rawTeacherAssignments' || key === 'rawEnrollments' || key === 'rawTeachers' || key === 'rawStudents' || key === 'rawAttendance' || key === 'rawGrades') {
-            SBI.state[key] = result.data;
-            if (key === 'rawStudents') SBI.state.students = result.data; // Alias
-            if (key === 'rawClasses') SBI.state.classes = result.data; // Alias
-            if (key === 'rawTeachers') SBI.state.teachers = result.data; // Alias
-            if (key === 'rawSubjects') SBI.state.subjects = result.data; // Alias
-            if (key === 'rawTerms') SBI.state.terms = result.data; // Alias
-        } else if (key === 'weights') {
-            // Convert weights array to a map { work_type: weight_pct }
-            result.data.forEach(w => {
-                if (w.work_type && w.weight_pct != null) {
-                    // Convert weight_pct to a number (assuming it's a percentage value like 25, 50)
-                    const weightNum = parseFloat(String(w.weight_pct).replace('%', ''));
-                    if (!isNaN(weightNum)) {
-                        SBI.state.weights[w.work_type] = weightNum;
-                    }
-                }
-            });
-        }
-    });
-
-    console.log(`All sheets loaded: Array(${loadedCount})`);
-    
-    // --- STEP 1: Process raw data ---
-    processRawData();
-
-    // --- STEP 2: Trigger UI update (THE FIX) ---
-    SBI.triggerDashboardUpdates();
-
-    console.log("Data loading complete. Dashboards updated.");
-};
-
 
 // Add file listener
 document.addEventListener('DOMContentLoaded', () => {
@@ -376,21 +286,24 @@ document.addEventListener('DOMContentLoaded', () => {
     input.addEventListener('change', (e) => SBI.loadData(e.target.files));
     document.body.appendChild(input);
 
-    // Button in header
-    const header = document.querySelector('header div:last-child');
+    // Add Upload Button to the header controls
+    const headerControls = document.getElementById('header-controls');
     const btn = document.createElement('button');
     btn.innerText = '📂 Загрузить Excel';
     btn.style.background = 'rgba(255,255,255,0.2)';
     btn.style.border = '1px solid rgba(255,255,255,0.4)';
-    btn.style.color = '#fff';
-    btn.style.padding = '8px 12px';
-    btn.style.borderRadius = '4px';
+    btn.style.color = 'white';
+    btn.style.padding = '8px 15px';
+    btn.style.borderRadius = '6px';
     btn.style.cursor = 'pointer';
+    btn.style.transition = 'background 0.3s';
+    btn.onmouseover = () => btn.style.background = 'rgba(255,255,255,0.3)';
+    btn.onmouseout = () => btn.style.background = 'rgba(255,255,255,0.2)';
     btn.onclick = () => document.getElementById('fileLoader').click();
-    header.appendChild(btn);
-});
 
-// Utility function (should be in utils.js, but duplicated for context)
-SBI.unique = (arr) => Array.from(new Set(arr));
-SBI.mean = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-SBI.log = console.log;
+    if (headerControls) {
+        headerControls.appendChild(btn);
+    } else {
+        console.warn("Could not find '#header-controls' to attach the upload button. Please check index.html structure.");
+    }
+});

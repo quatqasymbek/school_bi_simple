@@ -1,312 +1,136 @@
-// dashboard_teacher.js
-console.log("dashboard_teacher.js загружен");
-
-window.SBI_Teacher = (function () {
-    const state = SBI.state;
-    const log = SBI.log || console.log;
-
-    let teacherSelect, termSelect;
-    let summaryContainer, breakdownContainer;
-
-    /**
-     * Формирует полное имя учителя из строки данных.
-     * @param {object} row Строка из state.teachers
-     * @returns {string} Полное имя
-     */
-    function buildTeacherName(row) {
-        if (!row) return "Неизвестный учитель";
-        const parts = [
-            row.last_name   != null ? String(row.last_name).trim()   : "",
-            row.first_name  != null ? String(row.first_name).trim()  : "",
-            row.middle_name != null ? String(row.middle_name).trim() : ""
-        ].filter(Boolean);
-        return parts.join(" ") || String(row.teacher_id || "Неизвестный");
-    }
-
-    /**
-     * Инициализация элементов DOM.
-     */
-    function init() {
-        teacherSelect = document.getElementById("teacherTeacherSelect");
-        termSelect    = document.getElementById("teacherTermSelect");
-        summaryContainer = document.getElementById("chart-teacher-summary");
-        breakdownContainer = document.getElementById("chart-teacher-breakdown");
-
-        if (teacherSelect) teacherSelect.onchange = update;
-        if (termSelect)    termSelect.onchange    = update;
-
-        // Первичное заполнение заглушками
-        if (summaryContainer) {
-            summaryContainer.innerHTML = '<h3>Сводка по успеваемости</h3><p style="color:#666;">Данные загружаются...</p>';
-        }
-        if (breakdownContainer) {
-            breakdownContainer.innerHTML = '<h3>Средний балл по предметам / классам</h3><p style="color:#666;">Данные загружаются...</p>';
-        }
-
-        log("[TeacherDashboard] init complete");
-    }
-
-    /**
-     * Заполняет фильтры (Учитель, Четверть).
-     */
-    function populateFilters() {
-        const rows = state.allRows || [];
-        const teachers = state.teachers || [];
-        const terms = state.allTerms || [];
-
-        if (!rows.length) return;
-
-        // 1. Учителя
-        if (teacherSelect) {
-            teacherSelect.innerHTML = "";
-            const sortedTeachers = [...teachers].sort((a, b) => {
-                return buildTeacherName(a).localeCompare(buildTeacherName(b), "ru");
-            });
-
-            sortedTeachers.forEach(t => {
-                const opt = document.createElement("option");
-                opt.value = t.teacher_id;
-                opt.textContent = buildTeacherName(t);
-                teacherSelect.appendChild(opt);
-            });
-            // Выбираем первого учителя по умолчанию
-            if (sortedTeachers.length) {
-                 teacherSelect.value = sortedTeachers[0].teacher_id;
-            }
-        }
-
-        // 2. Четверти
-        if (termSelect) {
-            termSelect.innerHTML = "";
-            const sortedTerms = [...terms].sort(); // Сортируем по ID четверти
-
-            // Добавляем опцию "Все четверти"
-            const optAll = document.createElement("option");
-            optAll.value = "";
-            optAll.textContent = "Все четверти";
-            termSelect.appendChild(optAll);
-
-            sortedTerms.forEach(t => {
-                const opt = document.createElement("option");
-                opt.value = t;
-                opt.textContent = t;
-                termSelect.appendChild(opt);
-            });
-            // Выбираем последнюю четверть по умолчанию
-            if (sortedTerms.length) {
-                termSelect.value = sortedTerms[sortedTerms.length - 1];
-            } else {
-                termSelect.value = "";
-            }
-        }
-    }
-
-    /**
-     * Получает строки оценок, относящиеся к выбранному учителю и четверти.
-     * Это ключевая функция, выполняющая JOIN.
-     * @returns {Array} Отфильтрованные строки оценок.
-     */
-    function getTeacherRows() {
-        const selectedTeacherId = teacherSelect ? teacherSelect.value : null;
-        const selectedTermId = termSelect ? termSelect.value : null;
-
-        if (!selectedTeacherId) {
-            log("[TeacherDashboard] Не выбран учитель.");
-            return [];
-        }
-
-        const allRows = state.allRows || [];
-        const assignments = state.teacherAssignments || [];
-
-        // 1. Находим все курсы, которые вел этот учитель в выбранной четверти
-        const taughtKeys = new Set(); // Set of "subject|class|term"
-        assignments.forEach(a => {
-            if (a.teacher_id === selectedTeacherId) {
-                if (!selectedTermId || a.term_id === selectedTermId) {
-                    const key = `${a.subject_id}|${a.class_id}|${a.term_id}`;
-                    taughtKeys.add(key);
-                }
-            }
-        });
-
-        if (taughtKeys.size === 0) {
-            log(`[TeacherDashboard] Не найдено назначений для учителя ${selectedTeacherId} в четверти ${selectedTermId || 'Все'}.`);
-            return [];
-        }
-
-        // 2. Фильтруем все оценки по найденным курсам
-        const filteredRows = allRows.filter(r => {
-            const key = `${r.subject}|${r.class}|${r.term}`;
-            return taughtKeys.has(key);
-        });
-
-        return filteredRows;
-    }
-
-    /**
-     * Рендеринг сводной таблицы.
-     * @param {Array} rows Отфильтрованные строки оценок.
-     */
-    function renderSummary(rows) {
-        if (!summaryContainer) return;
-        
-        if (rows.length === 0) {
-            summaryContainer.innerHTML = `
-                <h3>Сводка по успеваемости</h3>
-                <p style="color:#e94c3d; font-weight: 500;">
-                    Для выбранного учителя и четверти не найдено данных об оценках.
-                </p>
-            `;
-            return;
-        }
-
-        const avgScore = SBI.mean(rows.map(r => SBI.toNumber(r.final_5scale)).filter(v => v != null));
-        const knowledgeRatio = SBI.knowledgeRatio(rows);
-        const totalRecords = rows.length;
-
-        const teacherRow = (state.teachers || []).find(t => t.teacher_id === teacherSelect.value);
-        const teacherName = buildTeacherName(teacherRow);
-
-        summaryContainer.innerHTML = `
-            <h3>Сводка по успеваемости</h3>
-            <p><strong>Учитель:</strong> ${teacherName}</p>
-            <p><strong>Четверть:</strong> ${termSelect.value || 'Все'}</p>
-            
-            <table class="data-table" style="width: 100%; border-collapse: collapse; margin-top: 15px;">
-                <thead>
-                    <tr>
-                        <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2; text-align: left;">Показатель</th>
-                        <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2; text-align: right;">Значение</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td style="border: 1px solid #ddd; padding: 8px; text-align: left;">Средний балл (5-балльная)</td>
-                        <td style="border: 1px solid #ddd; padding: 8px; text-align: right; font-weight: bold;">
-                            ${avgScore != null ? avgScore.toFixed(2) : 'Н/Д'}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="border: 1px solid #ddd; padding: 8px; text-align: left;">Качество знаний (доля 4 и 5)</td>
-                        <td style="border: 1px solid #ddd; padding: 8px; text-align: right; font-weight: bold;">
-                            ${knowledgeRatio != null ? (knowledgeRatio * 100).toFixed(1) + '%' : 'Н/Д'}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="border: 1px solid #ddd; padding: 8px; text-align: left;">Всего оценок (строк)</td>
-                        <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">${totalRecords}</td>
-                    </tr>
-                </tbody>
-            </table>
-        `;
-    }
-
-    /**
-     * Рендеринг графика разбивки по предметам/классам.
-     * @param {Array} rows Отфильтрованные строки оценок.
-     */
-    function renderBreakdown(rows) {
-        if (!breakdownContainer) return;
-
-        if (rows.length === 0) {
-            Plotly.purge(breakdownContainer);
-            return;
-        }
-        
-        // Группируем по комбинации Предмет + Класс
-        const bySubjectClass = SBI.groupBy(
-            rows, 
-            r => `${r.subject} (${r.class})`,
-            r => SBI.toNumber(r.final_5scale)
-        );
-
-        const keys = Object.keys(bySubjectClass);
-        const avgScores = keys.map(k => {
-            const scores = bySubjectClass[k].filter(v => v != null);
-            return SBI.mean(scores);
-        });
-        
-        // Создаем массив объектов для сортировки
-        const dataForSort = keys.map((key, index) => ({
-            key: key,
-            avg: avgScores[index]
-        })).filter(d => d.avg != null);
-
-        // Сортируем от худшего к лучшему
-        dataForSort.sort((a, b) => a.avg - b.avg);
-
-        const sortedKeys = dataForSort.map(d => d.key);
-        const sortedScores = dataForSort.map(d => d.avg);
-
-
-        Plotly.newPlot(breakdownContainer, [{
-            x: sortedScores,
-            y: sortedKeys,
-            type: 'bar',
-            orientation: 'h',
-            marker: {
-                color: sortedScores.map(score => {
-                    if (score >= 4.5) return 'rgb(34, 139, 34)'; // Зеленый (отлично)
-                    if (score >= 3.5) return 'rgb(255, 165, 0)'; // Оранжевый (хорошо)
-                    return 'rgb(220, 20, 60)'; // Красный (ниже среднего)
-                })
-            }
-        }], {
-            title: 'Средний балл по преподаваемым курсам',
-            margin: { l: 150, r: 20, t: 50, b: 50 },
-            xaxis: { 
-                title: 'Средний балл (5-балльная)', 
-                range: [1.5, 5],
-                tickvals: [2, 3, 4, 5],
-                gridcolor: '#e0e0e0'
-            },
-            yaxis: { 
-                title: 'Предмет и класс',
-                automargin: true // Убедимся, что длинные названия классов влезают
-            }
-        }, {
-            responsive: true,
-            displayModeBar: false
-        });
-    }
-
-    /**
-     * Основная функция обновления дашборда.
-     */
+window.SBI_Teacher = (function() {
+    
     function update() {
-        if (!state.allRows || !state.allRows.length) {
-            log("[TeacherDashboard] Данные еще не загружены.");
-            if (summaryContainer) {
-                 summaryContainer.innerHTML = '<h3>Сводка по успеваемости</h3><p style="color:#666;">Пожалуйста, загрузите данные успеваемости (Excel).</p>';
-            }
-            if (breakdownContainer) Plotly.purge(breakdownContainer);
-            return;
+        if (!SBI.state.isLoaded) return;
+
+        const termSel = document.getElementById('tcTerm');
+        if (termSel.options.length === 0) {
+            SBI.state.terms.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.term_id; opt.text = t.term_id;
+                termSel.add(opt);
+            });
+            termSel.addEventListener('change', renderAll);
+            document.getElementById('tcMetric').addEventListener('change', renderTable);
+            
+            const teachSel = document.getElementById('tcSelectTeacher');
+            SBI.state.teachers.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.teacher_id; opt.text = `${t.last_name} ${t.first_name}`;
+                teachSel.add(opt);
+            });
+            teachSel.addEventListener('change', renderStudentDonut);
         }
-        
-        const filteredRows = getTeacherRows();
-        log("[TeacherDashboard] Отфильтровано строк:", filteredRows.length);
-        
-        renderSummary(filteredRows);
-        renderBreakdown(filteredRows);
+        renderAll();
     }
 
-    /**
-     * Вызывается после загрузки всех данных из Excel.
-     */
-    function onDataLoaded() {
-        if (!state.allRows || !state.allRows.length) {
-            log("[TeacherDashboard] onDataLoaded: Нет данных allRows.");
-            return;
-        }
-
-        populateFilters();
-        update();
+    function renderAll() {
+        renderQualDonut();
+        renderTable();
+        renderStudentDonut();
     }
 
-    init();
+    function renderQualDonut() {
+        // Section 1: Teacher Quals. 
+        // Selector is Term. Maybe filter teachers active in that term?
+        // For now, just all teachers.
+        
+        const counts = {};
+        SBI.state.teachers.forEach(t => {
+            // Qual code usually in t.qualification_code or join with TEACHER_QUALS
+            // Using raw teacher data assumption from snippet
+            let q = t.qualification_code || 'Unknown';
+            // Map code to Name if possible
+            const qDef = SBI.state.teacherQuals.find(qd => qd.qual_code === q);
+            if (qDef) q = qDef.qual_name;
+            
+            counts[q] = (counts[q] || 0) + 1;
+        });
 
-    return {
-        onDataLoaded: onDataLoaded,
-        update: update // Чтобы можно было вызвать из кнопки
-    };
+        const labels = Object.keys(counts);
+        const values = Object.values(counts);
+
+        Plotly.newPlot('tcQualDonut', [{
+            values: values, labels: labels, type: 'pie', hole: 0.4
+        }]);
+    }
+
+    function renderTable() {
+        const metric = document.getElementById('tcMetric').value;
+        const container = document.getElementById('tcTable');
+        const terms = [...new Set(SBI.state.processedGrades.map(r => r.term_id))].sort();
+
+        let html = `<table><thead><tr><th>ФИО</th><th>Категория</th>`;
+        terms.forEach(t => html += `<th>${t}</th>`);
+        html += `</tr></thead><tbody>`;
+
+        // Min/Max for gradient
+        // Need to calculate metrics for all teachers/terms first strictly for range
+        // Skipping strict range calc for brevity, using 0-100 or 2-5
+        
+        SBI.state.teachers.forEach(t => {
+            // Get category name
+            const qDef = SBI.state.teacherQuals.find(qd => qd.qual_code === t.qualification_code);
+            const cat = qDef ? qDef.qual_name : t.qualification_code;
+
+            html += `<tr><td style="text-align:left">${t.last_name} ${t.first_name}</td><td>${cat}</td>`;
+
+            terms.forEach(term => {
+                // Find grades given by this teacher in this term
+                const rows = SBI.state.processedGrades.filter(r => r.teacher_id === t.teacher_id && r.term_id === term);
+                const val = calculateMetric(rows, metric);
+                
+                let bg = 'transparent';
+                if (val !== null) {
+                    bg = metric === 'quality' 
+                        ? SBI.getGradientColor(val, 0, 100) 
+                        : SBI.getGradientColor(val, 2, 5);
+                }
+                const txt = val !== null ? (metric === 'quality' ? val.toFixed(1)+'%' : val.toFixed(2)) : '-';
+                html += `<td style="background:${bg}; color:#fff;">${txt}</td>`;
+            });
+            html += `</tr>`;
+        });
+
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+    }
+
+    function renderStudentDonut() {
+        const tid = document.getElementById('tcSelectTeacher').value;
+        const term = document.getElementById('tcTerm').value;
+
+        if (!tid) return;
+
+        // "Shares of Отличник/Хорошист... students of the teacher"
+        // As discussed, we interpret this as the distribution of GRADES (5,4,3,2) given by the teacher
+        // mapped to labels to show performance in their subject.
+        
+        const rows = SBI.state.processedGrades.filter(r => r.teacher_id === tid && r.term_id === term);
+        
+        const counts = { 5:0, 4:0, 3:0, 2:0 };
+        rows.forEach(r => {
+            if (counts[r.grade] !== undefined) counts[r.grade]++;
+        });
+
+        const values = [counts[5], counts[4], counts[3], counts[2]];
+        const labels = ['Отлично (5)', 'Хорошо (4)', 'Удовл. (3)', 'Неуд. (2)'];
+        const colors = [SBI.colors.grade5, SBI.colors.grade4, SBI.colors.grade3, SBI.colors.grade2];
+
+        Plotly.newPlot('tcStudentDonut', [{
+            values: values, labels: labels, type: 'pie', marker: {colors: colors}
+        }], { margin: {t:0,b:0,l:0,r:0} });
+    }
+
+    function calculateMetric(rows, type) {
+        if (!rows.length) return null;
+        if (type === 'average') {
+            return rows.reduce((a,b)=>a+b.grade,0) / rows.length;
+        } else {
+            const good = rows.filter(r => r.grade >= 4).length;
+            return (good / rows.length) * 100;
+        }
+    }
+
+    return { update };
 })();

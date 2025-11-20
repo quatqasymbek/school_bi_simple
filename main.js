@@ -278,7 +278,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.appendChild(input);
 
     // 2. Add 'Upload Excel' button to the header controls area
-    // FIX: Use the specific ID 'header-controls' instead of the generic 'div:last-child' selector
+    // This now targets the ID 'header-controls' which we added to index.html
     const controls = document.getElementById('header-controls');
     const btn = document.createElement('button');
     btn.innerText = '📂 Загрузить Excel';
@@ -298,6 +298,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (controls) {
         controls.appendChild(btn);
     } else {
-        console.warn("Could not find '#header-controls' to attach the upload button.");
+        // This should no longer happen after updating index.html
+        console.warn("Could not find '#header-controls' to attach the upload button. Please check index.html structure.");
     }
 });

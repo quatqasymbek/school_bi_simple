@@ -2,235 +2,1388 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8" />
-    <title>Школьная Аналитика (BI)</title>
+    <title>School BI Platform</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <!-- External Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
-    <!-- Font Awesome for Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
 
     <style>
-        /* RESET & BASE */
-        :root { --primary: #2c3e50; --accent: #3498db; --bg: #f4f7f6; --white: #ffffff; --text: #333; --border: #ddd; }
+        :root {
+            --primary: #2c3e50;
+            --accent: #3498db;
+            --bg: #f4f7f6;
+            --white: #ffffff;
+            --text: #333;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
         * { box-sizing: border-box; }
-        body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
 
-        /* HEADER */
         header {
-            background: var(--primary); color: var(--white); padding: 0 20px; height: 60px;
-            display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            background: var(--primary);
+            color: white;
+            padding: 0 20px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
         }
-        header h1 { font-size: 1.4rem; font-weight: 600; margin: 0; }
-        
-        /* CONTROLS (Hardcoded Upload Button) */
-        .header-controls { display: flex; gap: 10px; }
+
         .btn-upload {
-            background: #27ae60; border: 1px solid rgba(255,255,255,0.3); color: white;
-            padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600;
-            display: flex; align-items: center; gap: 8px;
+            background: #27ae60;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
         }
-        .btn-upload:hover { background: #219150; }
 
-        /* TABS */
-        .tabs { background: var(--white); padding: 0 20px; border-bottom: 1px solid var(--border); display: flex; gap: 5px; flex-shrink: 0; overflow-x: auto; }
+        .btn-upload:hover {
+            background: #219150;
+        }
+
+        .tabs {
+            background: white;
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            overflow-x: auto;
+            flex-shrink: 0;
+        }
+
         .tab-btn {
-            padding: 15px 20px; background: none; border: none; border-bottom: 3px solid transparent;
-            font-size: 1rem; color: #666; cursor: pointer; white-space: nowrap;
+            padding: 15px 20px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            font-weight: 600;
+            white-space: nowrap;
         }
-        .tab-btn:hover { background: #f9f9f9; color: var(--primary); }
-        .tab-btn.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
 
-        /* MAIN CONTENT */
-        main { flex: 1; overflow-y: auto; padding: 20px; }
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .tab-btn:hover {
+            background: #f9f9f9;
+        }
+
+        main {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
         .page { display: none; }
-        .page.active { display: block; }
+        .page.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
 
-        /* UI COMPONENTS */
-        .card { background: var(--white); border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-        h2 { margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; font-size: 1.3rem; color: var(--primary); }
-        h3 { font-size: 1.1rem; color: #555; margin-bottom: 15px; }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
 
-        .filters { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; background: #f8f9fa; padding: 10px; border-radius: 6px; }
-        select, button.action-btn { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; }
-        button.action-btn { background: var(--accent); color: white; border: none; cursor: pointer; }
-        
-        /* KPIS */
-        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
-        .kpi-box { background: #fff; border: 1px solid #eee; padding: 15px; border-radius: 6px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
-        .kpi-val { font-size: 2rem; font-weight: bold; color: var(--accent); }
-        .kpi-lbl { font-size: 0.9rem; color: #777; text-transform: uppercase; margin-top: 5px; }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
 
-        /* TABLES */
-        .table-wrap { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-        th, td { padding: 10px; border: 1px solid #eee; text-align: center; }
-        th { background: #f4f4f4; font-weight: 600; color: #333; }
-        
-        .hidden-input { display: none; }
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .kpi-box {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #eee;
+        }
+
+        .kpi-val {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .kpi-lbl {
+            font-size: 0.85rem;
+            color: #777;
+            text-transform: uppercase;
+            margin-top: 5px;
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        th, td {
+            padding: 10px;
+            border: 1px solid #eee;
+            text-align: center;
+        }
+
+        th {
+            background: #f8f9fa;
+            color: #444;
+        }
+
+        .grade-5 { color: #27ae60; font-weight: bold; }
+        .grade-4 { color: #2980b9; font-weight: bold; }
+        .grade-3 { color: #f39c12; font-weight: bold; }
+        .grade-2 { color: #c0392b; font-weight: bold; }
+
+        .filters {
+            background: #eef2f7;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        select, button.action-btn {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        button.action-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button.action-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        #status-log {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: #222;
+            color: #0f0;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 5px 10px;
+            height: 30px;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .ai-out {
+            white-space: pre-wrap;
+            font-size: 0.95rem;
+            line-height: 1.35;
+        }
     </style>
 </head>
 <body>
 
-    <header>
-        <h1>📊 Школьная Платформа</h1>
-        <div class="header-controls">
-            <button class="btn-upload" onclick="document.getElementById('fileLoader').click()">
-                <i class="fas fa-upload"></i> Загрузить Excel
-            </button>
-            <input type="file" id="fileLoader" class="hidden-input" multiple>
-        </div>
-    </header>
+<header>
+    <h3>🎓 School BI Platform</h3>
+    <div>
+        <input type="file" id="xlsxInput" accept=".xlsx" style="display:none">
+        <button class="btn-upload" onclick="document.getElementById('xlsxInput').click()">
+            <i class="fas fa-file-excel"></i> Загрузить example_excel.xlsx
+        </button>
+    </div>
+</header>
 
-    <div class="tabs">
-        <button class="tab-btn active" data-target="page-overview">Обзор</button>
-        <button class="tab-btn" data-target="page-classes">Классы</button>
-        <button class="tab-btn" data-target="page-students">Ученики</button>
-        <button class="tab-btn" data-target="page-teachers">Учителя</button>
-        <button class="tab-btn" data-target="page-subjects">Предметы</button>
-        <button class="tab-btn" data-target="page-attendance">Посещаемость</button>
+<div class="tabs">
+    <button class="tab-btn active" onclick="showPage('overview', event)">Обзор</button>
+    <button class="tab-btn" onclick="showPage('classes', event)">Классы</button>
+    <button class="tab-btn" onclick="showPage('students', event)">Ученики</button>
+    <button class="tab-btn" onclick="showPage('teachers', event)">Учителя</button>
+    <button class="tab-btn" onclick="showPage('subjects', event)">Предметы</button>
+    <button class="tab-btn" onclick="showPage('attendance', event)">Посещаемость</button>
+    <button class="tab-btn" onclick="showPage('ai-panel', event)">ИИ-интерпретация</button>
+</div>
+
+<main>
+    <!-- 1. OVERVIEW -->
+    <div id="overview" class="page active">
+        <div class="filters">
+            <label>Четверть: <select id="ovTerm"></select></label>
+            <label>Метрика:
+                <select id="ovMetric">
+                    <option value="q">Качество знаний</option>
+                    <option value="a">Средняя оценка</option>
+                </select>
+            </label>
+            <button class="action-btn" id="ovAIButton" onclick="AppAI.explainOverview()">
+                🧠 ИИ-интерпретация
+            </button>
+            <span id="aiSupportInfo" style="font-size:0.8rem; color:#555;"></span>
+        </div>
+
+        <div class="card" id="ovAIBlock" style="display:none; margin-bottom:20px;">
+            <h3>ИИ-интерпретация (Обзор)</h3>
+            <div id="ovAIText" class="ai-out"></div>
+        </div>
+
+        <div class="kpi-grid">
+            <div class="kpi-box">
+                <div class="kpi-val" id="kpi_stu">0</div>
+                <div class="kpi-lbl">Учеников</div>
+            </div>
+            <div class="kpi-box">
+                <div class="kpi-val" id="kpi_tch">0</div>
+                <div class="kpi-lbl">Учителей</div>
+            </div>
+            <div class="kpi-box">
+                <div class="kpi-val" id="kpi_met">-</div>
+                <div class="kpi-lbl">Показатель</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div style="display:flex; gap:20px; flex-wrap:wrap;">
+                <div style="flex:2; min-width:300px;">
+                    <h3>Успеваемость по параллелям</h3>
+                    <div class="table-container" id="ovTable"></div>
+                </div>
+                <div style="flex:1; min-width:300px;">
+                    <h3>Статус (Вся школа)</h3>
+                    <div id="ovDonut" style="height:300px;"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <main>
-        <!-- PAGE: OVERVIEW -->
-        <div id="page-overview" class="page active">
-            <div class="filters">
-                <label>Четверть: <select id="ovTerm"></select></label>
-                <label>Метрика: <select id="ovMetric"><option value="quality">Качество знаний</option><option value="avg">Средняя оценка</option></select></label>
-                <button class="action-btn" id="aiBtn">ИИ-интерпретация</button>
-            </div>
-            <div class="kpi-grid">
-                <div class="kpi-box"><div class="kpi-val" id="kpi-total-students">0</div><div class="kpi-lbl">Учеников</div></div>
-                <div class="kpi-box"><div class="kpi-val" id="kpi-total-teachers">0</div><div class="kpi-lbl">Учителей</div></div>
-                <div class="kpi-box"><div class="kpi-val" id="kpi-metric-val">-</div><div class="kpi-lbl">Показатель</div></div>
-            </div>
-            <div class="card">
-                <h2>Общая статистика</h2>
-                <div style="display:flex; gap:20px; flex-wrap:wrap;">
-                    <div style="flex:2; min-width:300px;">
-                        <h3>Успеваемость по параллелям (1-11)</h3>
-                        <div class="table-wrap" id="ovGradeTable"></div>
-                    </div>
-                    <div style="flex:1; min-width:300px;">
-                        <h3>Статус учащихся</h3>
-                        <div id="ovDonut" style="height:300px;"></div>
-                    </div>
-                </div>
-            </div>
-             <div id="aiOutput" class="card" style="display:none; background:#f0faff; border:1px solid #bae6fd;"></div>
+    <!-- 2. CLASSES -->
+    <div id="classes" class="page">
+        <div class="filters">
+            <label>Метрика:
+                <select id="clMetric" onchange="App.renderClasses()">
+                    <option value="q">Качество знаний</option>
+                    <option value="a">Средняя оценка</option>
+                </select>
+            </label>
+            <label>Четверть:
+                <select id="clTerm" onchange="App.renderClasses(); App.renderClassDonut();"></select>
+            </label>
         </div>
-
-        <!-- PAGE: CLASSES -->
-        <div id="page-classes" class="page">
-            <div class="filters">
-                <label>Метрика: <select id="clMetric"><option value="quality">Качество знаний</option><option value="avg">Средняя оценка</option></select></label>
-            </div>
-            <div class="card">
-                <h2>Рейтинг классов</h2>
-                <div class="table-wrap" id="clTable"></div>
-            </div>
-            <div class="filters">
-                <label>Класс: <select id="clSelect"></select></label>
-                <label>Четверть: <select id="clTerm"></select></label>
-            </div>
-            <div class="card">
-                <h3>Детализация успеваемости</h3>
-                <div id="clDonut" style="height:350px;"></div>
-            </div>
+        <div class="card">
+            <h3>Рейтинг классов</h3>
+            <div class="table-container" id="clTable"></div>
         </div>
-
-        <!-- PAGE: STUDENTS -->
-        <div id="page-students" class="page">
-            <div class="filters">
-                <label>Класс: <select id="stClass"></select></label>
-                <label>Четверть: <select id="stTerm"></select></label>
-                <button class="action-btn" id="stLoadBtn">Показать</button>
-            </div>
-            <div class="card">
-                <h2>Ведомость успеваемости</h2>
-                <div class="table-wrap" id="stTable"></div>
-            </div>
+        <div class="filters">
+            <label>Класс: <select id="clSelect" onchange="App.renderClassDonut()"></select></label>
         </div>
+        <div class="card">
+            <h3>Детализация класса</h3>
+            <div id="clDonut" style="height:350px;"></div>
+        </div>
+    </div>
 
-        <!-- PAGE: TEACHERS -->
-        <div id="page-teachers" class="page">
-             <div class="filters">
-                <label>Четверть: <select id="tcTerm"></select></label>
-                <label>Метрика: <select id="tcMetric"><option value="quality">Качество знаний</option><option value="avg">Средняя оценка</option></select></label>
+    <!-- 3. STUDENTS -->
+    <div id="students" class="page">
+        <div class="filters">
+            <label>Класс: <select id="stClass"></select></label>
+            <label>Четверть: <select id="stTerm"></select></label>
+            <button class="action-btn" onclick="App.renderStudents()">Показать</button>
+        </div>
+        <div class="card">
+            <h3>Ведомость</h3>
+            <div class="table-container" id="stTable"></div>
+        </div>
+    </div>
+
+    <!-- 4. TEACHERS -->
+    <div id="teachers" class="page">
+        <div class="filters">
+            <label>Четверть: <select id="tcTerm" onchange="App.renderTeachers()"></select></label>
+            <label>Метрика:
+                <select id="tcMetric" onchange="App.renderTeachers()">
+                    <option value="q">Качество знаний</option>
+                    <option value="a">Средняя оценка</option>
+                </select>
+            </label>
+        </div>
+        <div class="card" style="display:flex; gap:20px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:260px;">
+                <h3>Квалификация (заглушка)</h3>
+                <div id="tcQual" style="height:300px;"></div>
             </div>
-            <div class="card" style="display:flex; gap:20px;">
-                <div style="flex:1;">
-                    <h3>Квалификация педагогов</h3>
-                    <div id="tcQualDonut" style="height:300px;"></div>
-                </div>
-                <div style="flex:1;">
-                    <h3>Успеваемость у учителя</h3>
-                    <select id="tcTeacherSel" style="width:100%; margin-bottom:10px;"></select>
-                    <div id="tcIndDonut" style="height:260px;"></div>
-                </div>
-            </div>
-            <div class="card">
-                <h2>Эффективность учителей</h2>
-                <div class="table-wrap" id="tcTable"></div>
+            <div style="flex:1; min-width:260px;">
+                <h3>Учитель (детали)</h3>
+                <select id="tcSel" onchange="App.renderTeacherInd()" style="width:100%; margin-bottom:10px;"></select>
+                <div id="tcInd" style="height:260px;"></div>
             </div>
         </div>
+        <div class="card">
+            <h3>Эффективность (заглушка)</h3>
+            <div class="table-container" id="tcTable"></div>
+        </div>
+    </div>
 
-        <!-- PAGE: SUBJECTS -->
-        <div id="page-subjects" class="page">
-            <div class="filters">
-                <label>Четверть: <select id="sbTerm"></select></label>
-                <label>Метрика: <select id="sbMetric"><option value="quality">Качество знаний</option><option value="avg">Средняя оценка</option></select></label>
-            </div>
-            <div class="card">
-                <h2>Рейтинг предметов</h2>
-                <div id="sbChart" style="height:400px;"></div>
-            </div>
-            <div class="card">
-                <h2>Тепловая карта</h2>
-                <div id="sbHeatmap" style="height:500px;"></div>
-            </div>
+    <!-- 5. SUBJECTS -->
+    <div id="subjects" class="page">
+        <div class="filters">
+            <label>Четверть: <select id="sbTerm" onchange="App.renderSubjects()"></select></label>
+            <label>Метрика:
+                <select id="sbMetric" onchange="App.renderSubjects()">
+                    <option value="q">Качество знаний</option>
+                    <option value="a">Средняя оценка</option>
+                </select>
+            </label>
+        </div>
+        <div class="card">
+            <h3>Рейтинг предметов</h3>
+            <div id="sbChart" style="height:400px;"></div>
+        </div>
+        <div class="card">
+            <h3>Тепловая карта</h3>
+            <div id="sbHeatmap" style="height:500px;"></div>
+        </div>
+    </div>
+
+    <!-- 6. ATTENDANCE -->
+    <div id="attendance" class="page">
+        <div class="filters">
+            <label>Четверть: <select id="atTerm" onchange="App.renderAttendance()"></select></label>
+        </div>
+        <div class="card">
+            <h3>Посещаемость (классы)</h3>
+            <div class="table-container" id="atTable"></div>
+        </div>
+        <div class="filters">
+            <label>Класс: <select id="atClass" onchange="App.renderAttendanceStudent()"></select></label>
+        </div>
+        <div class="card">
+            <h3>Посещаемость (ученики)</h3>
+            <div class="table-container" id="atStudentTable"></div>
+        </div>
+    </div>
+
+    <!-- 7. AI PANEL -->
+    <div id="ai-panel" class="page">
+        <div class="filters">
+            <label>Модель ИИ:
+                <select id="aiModelSelect"></select>
+            </label>
+            <span id="aiServerInfo" style="font-size:0.8rem; color:#555;"></span>
         </div>
 
-        <!-- PAGE: ATTENDANCE -->
-        <div id="page-attendance" class="page">
-            <div class="filters">
-                <label>Четверть: <select id="atTerm"></select></label>
-            </div>
-            <div class="card">
-                <h2>Посещаемость по классам</h2>
-                <div class="table-wrap" id="atClassTable"></div>
-            </div>
-            <div class="filters">
-                <label>Класс: <select id="atClassSel"></select></label>
-            </div>
-            <div class="card">
-                <h2>Детализация по ученикам</h2>
-                <div class="table-wrap" id="atStudentTable"></div>
-            </div>
+        <div class="card">
+            <h3>Генератор отчёта по четверти</h3>
+            <p style="margin-top:0;color:#555;font-size:0.9rem;">
+                ИИ пишет связный отчёт на основе уже посчитанных данных (без выдуманных цифр).
+            </p>
+            <button class="action-btn" id="btnQuarterReport" onclick="AppAI.generateQuarterReport()">
+                Сгенерировать отчёт по четверти
+            </button>
+            <div id="quarterReportOut" class="ai-out" style="margin-top:12px;"></div>
         </div>
 
-    </main>
+        <div class="card">
+            <h3>Педсовет-конструктор</h3>
+            <p style="margin-top:0;color:#555;font-size:0.9rem;">
+                ИИ формирует повестку, вопросы для обсуждения и черновик решений.
+            </p>
+            <button class="action-btn" id="btnPedCouncil" onclick="AppAI.generatePedCouncilAgenda()">
+                Сформировать повестку педсовета
+            </button>
+            <div id="pedCouncilOut" class="ai-out" style="margin-top:12px;"></div>
+        </div>
+    </div>
+</main>
 
-    <script src="main.js"></script>
-    <script src="dashboard_overview.js"></script>
-    <script src="dashboard_class.js"></script>
-    <script src="dashboard_student.js"></script>
-    <script src="dashboard_teacher.js"></script>
-    <script src="dashboard_subject.js"></script>
-    <script src="attendance.js"></script>
-    <script src="llm_cpu.js"></script>
+<div id="status-log">System Ready. Please upload Excel file.</div>
 
-    <script>
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-                btn.classList.add('active');
-                document.getElementById(btn.dataset.target).classList.add('active');
+<script>
+/* ==================== CORE APP ==================== */
+const App = {
+    state: {
+        students: [],
+        teachers: [],
+        classes: [],
+        subjects: [],
+        terms: [],
+        gradesRaw: [],
+        attendanceRaw: [],
+        enrollments: [],
+        assignments: [],
+        processedGrades: [],
+        studentStatuses: {},
+        weights: { 'ФО': 0.25, 'СОР': 0.25, 'СОЧ': 0.50 }
+    },
+
+    init: function () {
+        const inp = document.getElementById('xlsxInput');
+        if (inp) {
+            inp.addEventListener('change', (e) => this.handleFile(e.target.files[0]));
+        }
+        this.log("System Ready. Please upload Excel file.");
+    },
+
+    log: function (msg) {
+        console.log(msg);
+        const el = document.getElementById('status-log');
+        if (el) el.innerText = "> " + msg;
+    },
+
+    handleFile: function (file) {
+        if (!file) return;
+        this.log("Reading Excel file...");
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const wb = XLSX.read(data, { type: 'array' });
+
+                const sheetMap = {
+                    'УЧАЩИЕСЯ': 'students',
+                    'УЧИТЕЛЯ': 'teachers',
+                    'КЛАССЫ': 'classes',
+                    'ПРЕДМЕТЫ': 'subjects',
+                    'ЧЕТВЕРТИ': 'terms',
+                    'ОЦЕНКИ': 'gradesRaw',
+                    'ПОСЕЩАЕМОСТЬ': 'attendanceRaw',
+                    'СОСТАВ_КЛАССА': 'enrollments',
+                    'НАЗНАЧЕНИЯ_ПРЕПОД': 'assignments'
+                };
+
+                wb.SheetNames.forEach(sheetName => {
+                    const upper = sheetName.toUpperCase();
+                    const key = Object.keys(sheetMap).find(k => upper.includes(k));
+                    if (key) {
+                        const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+                        this.state[sheetMap[key]] = jsonData;
+                        this.log(`Loaded sheet: ${sheetName} (${jsonData.length} rows)`);
+                    }
+                });
+
+                if (this.state.gradesRaw.length === 0) {
+                    alert("Sheet 'ОЦЕНКИ' not found in Excel!");
+                    return;
+                }
+
+                this.processData();
+            } catch (err) {
+                console.error(err);
+                alert("Error parsing Excel: " + err.message);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    },
+
+    mean: function (arr) {
+        return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+    },
+
+    processData: function () {
+        this.log("Calculating grades...");
+        const { gradesRaw, weights } = this.state;
+        const groups = {};
+
+        gradesRaw.forEach(r => {
+            if (!r.student_id || !r.subject_id || !r.term_id) return;
+            const key = `${r.student_id}|${r.subject_id}|${r.term_id}`;
+            if (!groups[key]) {
+                groups[key] = {
+                    student_id: r.student_id,
+                    subject_id: r.subject_id,
+                    term_id: r.term_id,
+                    class_id: r.class_id,
+                    fo: [],
+                    sor: [],
+                    soch: []
+                };
+            }
+
+            let val = parseFloat(r.percent);
+            if (isNaN(val) && r.score != null && r.max_score != null) {
+                val = r.score / r.max_score;
+            }
+            if (isNaN(val)) return;
+            if (val > 1) val = val / 100;
+
+            const type = (r.work_type || '').toUpperCase();
+            if (type.includes('ФО')) groups[key].fo.push(val);
+            else if (type.includes('СОР')) groups[key].sor.push(val);
+            else groups[key].soch.push(val);
+        });
+
+        const processed = [];
+        const wFO = weights['ФО'] || 0.25;
+        const wSOR = weights['СОР'] || 0.25;
+        const wSOCH = weights['СОЧ'] || 0.5;
+
+        Object.values(groups).forEach(g => {
+            const avgFO = this.mean(g.fo);
+            const avgSOR = this.mean(g.sor);
+            const avgSOCH = this.mean(g.soch);
+
+            let total = 0;
+            let wTotal = 0;
+
+            if (g.fo.length) { total += avgFO * wFO; wTotal += wFO; }
+            if (g.sor.length) { total += avgSOR * wSOR; wTotal += wSOR; }
+            if (g.soch.length) { total += avgSOCH * wSOCH; wTotal += wSOCH; }
+
+            const pct = wTotal > 0 ? (total / wTotal) * 100 : 0;
+
+            let grade = 2;
+            if (pct >= 85) grade = 5;
+            else if (pct >= 70) grade = 4;
+            else if (pct >= 55) grade = 3;
+
+            processed.push({
+                student_id: g.student_id,
+                subject_id: g.subject_id,
+                term_id: g.term_id,
+                class_id: g.class_id,
+                percent: pct,
+                grade: grade
             });
         });
-    </script>
+
+        this.state.processedGrades = processed;
+        this.calcStatuses();
+        this.initUI();
+        this.log("Dashboard Ready!");
+    },
+
+    calcStatuses: function () {
+        const tGrades = {};
+        this.state.processedGrades.forEach(p => {
+            const key = `${p.student_id}|${p.term_id}`;
+            if (!tGrades[key]) tGrades[key] = [];
+            tGrades[key].push(p.grade);
+        });
+
+        Object.entries(tGrades).forEach(([key, arr]) => {
+            let st = 'Двоечник';
+            if (arr.includes(2)) st = 'Двоечник';
+            else if (arr.includes(3)) st = 'Троечник';
+            else if (arr.includes(4)) st = 'Хорошист';
+            else st = 'Отличник';
+            this.state.studentStatuses[key] = st;
+        });
+    },
+
+    initUI: function () {
+        const terms = [...new Set(this.state.processedGrades.map(r => r.term_id))].sort();
+        const fillSelect = (id, options, withAll = false) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.innerHTML = '';
+            if (withAll) {
+                const opt = document.createElement('option');
+                opt.value = 'ALL';
+                opt.textContent = 'Весь год';
+                el.appendChild(opt);
+            }
+            options.forEach(o => {
+                const opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.label;
+                el.appendChild(opt);
+            });
+        };
+
+        const termOpts = terms.map(t => ({ value: t, label: t }));
+        fillSelect('ovTerm', termOpts, true);
+        fillSelect('clTerm', termOpts, false);
+        fillSelect('stTerm', termOpts, false);
+        fillSelect('tcTerm', termOpts, false);
+        fillSelect('sbTerm', termOpts, false);
+        fillSelect('atTerm', termOpts, false);
+
+        const classOpts = this.state.classes.map(c => ({
+            value: c.class_id,
+            label: c.class_name
+        }));
+        fillSelect('clSelect', classOpts, false);
+        fillSelect('stClass', classOpts, false);
+        fillSelect('atClass', classOpts, false);
+
+        const tchOpts = this.state.teachers.map(t => ({
+            value: t.teacher_id,
+            label: `${t.last_name || ''} ${t.first_name || ''}`.trim() || t.teacher_id
+        }));
+        fillSelect('tcSel', tchOpts, false);
+
+        document.getElementById('ovTerm').addEventListener('change', () => this.renderOverview());
+        document.getElementById('ovMetric').addEventListener('change', () => this.renderOverview());
+
+        this.renderOverview();
+        this.renderClasses();
+        this.renderSubjects();
+        this.renderAttendance();
+    },
+
+    /* ---------- common helpers for analytics & AI ---------- */
+    getMetricValue: function (rows, metric) {
+        if (!rows.length) return null;
+        if (metric === 'a') return this.mean(rows.map(r => r.grade));
+        return (rows.filter(r => r.grade >= 4).length / rows.length) * 100;
+    },
+
+    getClassesRanking: function (term, metric) {
+        const data = term === 'ALL'
+            ? this.state.processedGrades
+            : this.state.processedGrades.filter(r => r.term_id === term);
+
+        const out = [];
+        this.state.classes.forEach(c => {
+            const rows = data.filter(r => r.class_id === c.class_id);
+            const v = this.getMetricValue(rows, metric);
+            if (v !== null) out.push({ class_id: c.class_id, class_name: c.class_name, val: v });
+        });
+        out.sort((a, b) => b.val - a.val);
+        return out;
+    },
+
+    getSubjectsRanking: function (term, metric) {
+        const data = term === 'ALL'
+            ? this.state.processedGrades
+            : this.state.processedGrades.filter(r => r.term_id === term);
+
+        const out = [];
+        this.state.subjects.forEach(s => {
+            const rows = data.filter(r => r.subject_id === s.subject_id);
+            const v = this.getMetricValue(rows, metric);
+            if (v !== null) out.push({ subject_id: s.subject_id, subject_name: s.subject_name, val: v });
+        });
+        out.sort((a, b) => b.val - a.val);
+        return out;
+    },
+
+    getAttendanceSummary: function (term) {
+        const raw = this.state.attendanceRaw.filter(r => r.term_id === term);
+        if (!raw.length) return null;
+
+        const classStats = [];
+        this.state.classes.forEach(c => {
+            const rows = raw.filter(r => r.class_id === c.class_id);
+            if (!rows.length) return;
+            const total = rows.reduce((a, b) => a + (parseInt(b.total_classes) || 0), 0);
+            const pres = rows.reduce((a, b) => a + (parseInt(b.present_classes) || 0), 0);
+            const exc = rows.reduce((a, b) => a + (parseInt(b.absent_excused_classes) || 0), 0);
+            const unexc = rows.reduce((a, b) => a + (parseInt(b.absent_unexcused_classes) || 0), 0);
+            const late = rows.reduce((a, b) => a + (parseInt(b.late_classes) || 0), 0);
+            const pct = total ? (pres / total) * 100 : 0;
+            classStats.push({ class_id: c.class_id, class_name: c.class_name, total, pres, exc, unexc, late, pct });
+        });
+
+        const overall = classStats.reduce((acc, x) => {
+            acc.total += x.total;
+            acc.pres += x.pres;
+            acc.exc += x.exc;
+            acc.unexc += x.unexc;
+            acc.late += x.late;
+            return acc;
+        }, { total: 0, pres: 0, exc: 0, unexc: 0, late: 0 });
+
+        overall.pct = overall.total ? (overall.pres / overall.total) * 100 : 0;
+
+        classStats.sort((a, b) => a.pct - b.pct);
+        const worst = classStats.slice(0, 3);
+        const best = classStats.slice(-3).reverse();
+
+        return { overall, worst, best, classStats };
+    },
+
+    buildOverviewSummary: function () {
+        const termEl = document.getElementById('ovTerm');
+        const metricEl = document.getElementById('ovMetric');
+        const term = termEl ? termEl.value : 'ALL';
+        const metric = metricEl ? metricEl.value : 'q';
+
+        const termLabel = term === 'ALL' ? 'весь учебный год' : `четверть ${term}`;
+        const metricLabel = metric === 'a'
+            ? 'Средняя оценка (средний балл по 5-балльной шкале)'
+            : 'Качество знаний (доля учеников с оценками 4–5)';
+
+        const allGrades = this.state.processedGrades || [];
+        const data = term === 'ALL'
+            ? allGrades
+            : allGrades.filter(r => r.term_id === term);
+
+        const totalStudents = (this.state.students || []).length;
+        const totalTeachers = (this.state.teachers || []).length;
+
+        let schoolMetricValue = 'нет данных';
+        if (data.length) {
+            if (metric === 'a') {
+                schoolMetricValue = this.mean(data.map(r => r.grade)).toFixed(2);
+            } else {
+                const q = (data.filter(r => r.grade >= 4).length / data.length) * 100;
+                schoolMetricValue = q.toFixed(1) + '%';
+            }
+        }
+
+        const statusCounts = {
+            'Отличник': 0,
+            'Хорошист': 0,
+            'Троечник': 0,
+            'Двоечник': 0
+        };
+        const statuses = this.state.studentStatuses || {};
+        Object.entries(statuses).forEach(([k, st]) => {
+            const t = k.split('|')[1];
+            if (term === 'ALL' || t === term) {
+                if (statusCounts[st] !== undefined) statusCounts[st] += 1;
+            }
+        });
+        const totalStatus = Object.values(statusCounts).reduce((a, b) => a + b, 0) || 1;
+        const statusPct = {};
+        for (let s in statusCounts) {
+            statusPct[s] = ((statusCounts[s] / totalStatus) * 100).toFixed(1);
+        }
+
+        const parallelStats = [];
+        for (let i = 1; i <= 11; i++) {
+            const rows = data.filter(r => {
+                const c = (this.state.classes || []).find(cls => cls.class_id === r.class_id);
+                return c && String(c.class_name).startsWith(i.toString());
+            });
+            if (!rows.length) continue;
+            let v;
+            if (metric === "a") v = this.mean(rows.map(r => r.grade));
+            else v = (rows.filter(r => r.grade >= 4).length / rows.length) * 100;
+            parallelStats.push({ parallel: i, val: v });
+        }
+        parallelStats.sort((a, b) => b.val - a.val);
+        const bestParallel = parallelStats[0] || null;
+        const worstParallel = parallelStats.length > 1 ? parallelStats[parallelStats.length - 1] : null;
+
+        let text = "";
+        text += `Период: ${termLabel}.\n`;
+        text += `Всего учеников: ${totalStudents}. Всего учителей: ${totalTeachers}.\n`;
+        text += `Выбранная метрика: ${metricLabel}.\n`;
+        text += `Показатель по школе: ${schoolMetricValue}.\n\n`;
+
+        text += "Распределение учащихся по учебным статусам (ученик–четверть):\n";
+        text += `- Отличники: ${statusCounts["Отличник"]} (${statusPct["Отличник"]}%).\n`;
+        text += `- Хорошисты: ${statusCounts["Хорошист"]} (${statusPct["Хорошист"]}%).\n`;
+        text += `- Троечники: ${statusCounts["Троечник"]} (${statusPct["Троечник"]}%).\n`;
+        text += `- Двоечники: ${statusCounts["Двоечник"]} (${statusPct["Двоечник"]}%).\n\n`;
+
+        if (bestParallel) {
+            const v = metric === "a"
+                ? bestParallel.val.toFixed(2)
+                : bestParallel.val.toFixed(1) + "%";
+            text += `Сильная параллель: ${bestParallel.parallel} классы (≈ ${v}).\n`;
+        }
+        if (bestParallel && worstParallel && bestParallel.parallel !== worstParallel.parallel) {
+            const v = metric === "a"
+                ? worstParallel.val.toFixed(2)
+                : worstParallel.val.toFixed(1) + "%";
+            text += `Слабее остальных: ${worstParallel.parallel} классы (≈ ${v}).\n`;
+        }
+
+        return text;
+    },
+
+    buildQuarterReportSummary: function () {
+        const term = document.getElementById('ovTerm')?.value || 'ALL';
+        const metric = document.getElementById('ovMetric')?.value || 'q';
+        const termLabel = term === 'ALL' ? 'весь год' : `четверть ${term}`;
+        const metricLabel = metric === 'a' ? 'средняя оценка' : 'качество знаний';
+
+        const ov = this.buildOverviewSummary();
+
+        const classRank = this.getClassesRanking(term, metric);
+        const topClasses = classRank.slice(0, 3);
+        const lowClasses = classRank.slice(-3);
+
+        const subjRank = this.getSubjectsRanking(term, metric);
+        const topSubj = subjRank.slice(0, 3);
+        const lowSubj = subjRank.slice(-3);
+
+        const att = term !== 'ALL' ? this.getAttendanceSummary(term) : null;
+
+        let t = "";
+        t += `Сводка для отчёта. Период: ${termLabel}. Метрика: ${metricLabel}.\n\n`;
+        t += `1) Обзор по школе:\n${ov}\n\n`;
+
+        t += `2) ТОП-3 классов по метрике (${metricLabel}):\n`;
+        topClasses.forEach((x, i) => {
+            const v = metric === 'a' ? x.val.toFixed(2) : x.val.toFixed(1) + '%';
+            t += `${i + 1}. ${x.class_name} — ${v}\n`;
+        });
+
+        t += `\nАнтитоп-3 классов:\n`;
+        lowClasses.forEach((x, i) => {
+            const v = metric === 'a' ? x.val.toFixed(2) : x.val.toFixed(1) + '%';
+            t += `${i + 1}. ${x.class_name} — ${v}\n`;
+        });
+
+        t += `\n3) ТОП-3 предметов:\n`;
+        topSubj.forEach((x, i) => {
+            const v = metric === 'a' ? x.val.toFixed(2) : x.val.toFixed(1) + '%';
+            t += `${i + 1}. ${x.subject_name} — ${v}\n`;
+        });
+
+        t += `\nАнтитоп-3 предметов:\n`;
+        lowSubj.forEach((x, i) => {
+            const v = metric === 'a' ? x.val.toFixed(2) : x.val.toFixed(1) + '%';
+            t += `${i + 1}. ${x.subject_name} — ${v}\n`;
+        });
+
+        if (att) {
+            t += `\n4) Посещаемость:\n`;
+            t += `- По школе: ${att.overall.pct.toFixed(1)}% присутствий.\n`;
+            t += `- Классы с наихудшей посещаемостью:\n`;
+            att.worst.forEach(x => {
+                t += `  • ${x.class_name} — ${x.pct.toFixed(1)}%.\n`;
+            });
+        } else {
+            t += `\n4) Посещаемость: нет данных или выбран весь год.\n`;
+        }
+
+        return t;
+    },
+
+    buildPedCouncilFacts: function () {
+        const term = document.getElementById('ovTerm')?.value || 'ALL';
+        const metric = document.getElementById('ovMetric')?.value || 'q';
+        const metricLabel = metric === 'a' ? 'средняя оценка' : 'качество знаний';
+
+        const classRank = this.getClassesRanking(term, metric);
+        const subjRank = this.getSubjectsRanking(term, metric);
+
+        const weakestClass = classRank[classRank.length - 1];
+        const strongestClass = classRank[0];
+        const weakestSubj = subjRank[subjRank.length - 1];
+        const strongestSubj = subjRank[0];
+
+        const vStr = (x) => metric === 'a' ? x.val.toFixed(2) : x.val.toFixed(1) + '%';
+
+        let t = "";
+        t += `Факты для педсовета (${term === 'ALL' ? 'год' : 'четверть ' + term}, метрика=${metricLabel}):\n`;
+        if (strongestClass && weakestClass) {
+            t += `- Самый сильный класс: ${strongestClass.class_name} (≈ ${vStr(strongestClass)}).\n`;
+            t += `- Самый слабый класс: ${weakestClass.class_name} (≈ ${vStr(weakestClass)}).\n`;
+        }
+        if (strongestSubj && weakestSubj) {
+            t += `- Сильный предмет: ${strongestSubj.subject_name} (≈ ${vStr(strongestSubj)}).\n`;
+            t += `- Проблемный предмет: ${weakestSubj.subject_name} (≈ ${vStr(weakestSubj)}).\n`;
+        }
+        t += `- См. распределение статусов учеников и параллелей на вкладке «Обзор».\n`;
+        return t;
+    },
+
+    /* ---------- RENDER: OVERVIEW ---------- */
+    renderOverview: function () {
+        const term = document.getElementById('ovTerm').value;
+        const metric = document.getElementById('ovMetric').value;
+        const data = term === 'ALL'
+            ? this.state.processedGrades
+            : this.state.processedGrades.filter(r => r.term_id === term);
+
+        document.getElementById('kpi_stu').innerText = this.state.students.length;
+        document.getElementById('kpi_tch').innerText = this.state.teachers.length;
+
+        let val = '-';
+        if (data.length) {
+            if (metric === 'a') {
+                val = this.mean(data.map(r => r.grade)).toFixed(2);
+            } else {
+                val = ((data.filter(r => r.grade >= 4).length / data.length) * 100).toFixed(1) + '%';
+            }
+        }
+        document.getElementById('kpi_met').innerText = val;
+
+        const terms = [...new Set(this.state.processedGrades.map(r => r.term_id))].sort();
+        let html = '<table><thead><tr><th>Параллель</th>';
+        terms.forEach(t => html += `<th>${t}</th>`);
+        html += '</tr></thead><tbody>';
+
+        for (let i = 1; i <= 11; i++) {
+            html += `<tr><td><b>${i} классы</b></td>`;
+            terms.forEach(t => {
+                const rows = this.state.processedGrades.filter(r => r.term_id === t);
+                const subset = rows.filter(r => {
+                    const c = this.state.classes.find(cls => cls.class_id === r.class_id);
+                    return c && String(c.class_name).startsWith(i.toString());
+                });
+
+                let cell = '-', bg = '';
+                if (subset.length) {
+                    if (metric === 'a') {
+                        const v = this.mean(subset.map(r => r.grade)).toFixed(2);
+                        bg = parseFloat(v) >= 4 ? '#d4edda' : '#f8d7da';
+                        cell = v;
+                    } else {
+                        const q = (subset.filter(r => r.grade >= 4).length / subset.length) * 100;
+                        const v = Math.round(q) + '%';
+                        bg = q > 50 ? '#d4edda' : '#f8d7da';
+                        cell = v;
+                    }
+                }
+                html += `<td style="background:${bg}">${cell}</td>`;
+            });
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+        document.getElementById('ovTable').innerHTML = html;
+
+        const counts = { '5': 0, '4': 0, '3': 0, '2': 0 };
+        Object.entries(this.state.studentStatuses).forEach(([k, st]) => {
+            const t = k.split('|')[1];
+            if (term === 'ALL' || t === term) {
+                if (st === 'Отличник') counts['5']++;
+                else if (st === 'Хорошист') counts['4']++;
+                else if (st === 'Троечник') counts['3']++;
+                else counts['2']++;
+            }
+        });
+
+        Plotly.newPlot('ovDonut', [{
+            values: Object.values(counts),
+            labels: ['Отличник', 'Хорошист', 'Троечник', 'Двоечник'],
+            type: 'pie',
+            marker: { colors: ['#2ecc71', '#3498db', '#f1c40f', '#e74c3c'] },
+            hole: 0.4
+        }], { margin: { t: 0, b: 0, l: 0, r: 0 } });
+    },
+
+    /* ---------- RENDER: CLASSES ---------- */
+    renderClasses: function () {
+        const term = document.getElementById('clTerm').value || 'ALL';
+        const metric = document.getElementById('clMetric').value;
+        const ranking = this.getClassesRanking(term, metric);
+
+        let html = '<table><thead><tr><th>#</th><th>Класс</th><th>Значение</th></tr></thead><tbody>';
+        ranking.forEach((c, i) => {
+            const v = metric === 'a' ? c.val.toFixed(2) : c.val.toFixed(1) + '%';
+            html += `<tr><td>${i + 1}</td><td>${c.class_name}</td><td>${v}</td></tr>`;
+        });
+        html += '</tbody></table>';
+        document.getElementById('clTable').innerHTML = html;
+    },
+
+    renderClassDonut: function () {
+        const term = document.getElementById('clTerm').value || 'ALL';
+        const classId = document.getElementById('clSelect').value;
+        if (!classId) {
+            document.getElementById('clDonut').innerHTML = '';
+            return;
+        }
+
+        const data = term === 'ALL'
+            ? this.state.processedGrades.filter(r => r.class_id === classId)
+            : this.state.processedGrades.filter(r => r.class_id === classId && r.term_id === term);
+
+        const counts = { 5: 0, 4: 0, 3: 0, 2: 0 };
+        data.forEach(r => { counts[r.grade] = (counts[r.grade] || 0) + 1; });
+
+        Plotly.newPlot('clDonut', [{
+            values: [counts[5], counts[4], counts[3], counts[2]],
+            labels: ['5', '4', '3', '2'],
+            type: 'pie',
+            hole: 0.4
+        }], { margin: { t: 0, b: 0, l: 0, r: 0 } });
+    },
+
+    /* ---------- RENDER: STUDENTS ---------- */
+    renderStudents: function () {
+        const classId = document.getElementById('stClass').value;
+        const term = document.getElementById('stTerm').value;
+        if (!classId || !term) {
+            document.getElementById('stTable').innerHTML = "Выберите класс и четверть";
+            return;
+        }
+
+        const rows = this.state.processedGrades.filter(r => r.class_id === classId && r.term_id === term);
+        const byStu = {};
+        rows.forEach(r => {
+            if (!byStu[r.student_id]) byStu[r.student_id] = [];
+            byStu[r.student_id].push(r.grade);
+        });
+
+        let html = '<table><thead><tr><th>Ученик</th><th>Средний балл</th><th>Статус</th></tr></thead><tbody>';
+        Object.entries(byStu).forEach(([stuId, arr]) => {
+            const avg = this.mean(arr);
+            const student = this.state.students.find(s => s.student_id === stuId) || {};
+            const name = `${student.last_name || ''} ${student.first_name || ''}`.trim() || stuId;
+            const st = this.state.studentStatuses[`${stuId}|${term}`] || '';
+            html += `<tr><td>${name}</td><td>${avg.toFixed(2)}</td><td>${st}</td></tr>`;
+        });
+        html += '</tbody></table>';
+        document.getElementById('stTable').innerHTML = html;
+    },
+
+    /* ---------- RENDER: TEACHERS (simplified placeholders) ---------- */
+    renderTeachers: function () {
+        document.getElementById('tcQual').innerHTML =
+            "<p style='font-size:0.9rem;color:#666;'>Пока реализована только общая аналитика. " +
+            "Страница учителей работает как заглушка.</p>";
+        document.getElementById('tcInd').innerHTML = "";
+        document.getElementById('tcTable').innerHTML =
+            "<p style='font-size:0.9rem;color:#666;padding:10px;'>Здесь можно будет отобразить рейтинг учителей, " +
+            "их нагрузку и качество знаний по предметам.</p>";
+    },
+
+    renderTeacherInd: function () {
+        const tcInd = document.getElementById('tcInd');
+        const sel = document.getElementById('tcSel');
+        const name = sel && sel.options[sel.selectedIndex]
+            ? sel.options[sel.selectedIndex].textContent
+            : '';
+        tcInd.innerHTML = `<p style='font-size:0.9rem;color:#666;'>Детализация для учителя: <b>${name}</b>. 
+            Аналитика будет добавлена на следующем этапе.</p>`;
+    },
+
+    /* ---------- RENDER: SUBJECTS ---------- */
+    renderSubjects: function () {
+        const term = document.getElementById('sbTerm').value;
+        const metric = document.getElementById('sbMetric').value;
+        const ranking = this.getSubjectsRanking(term, metric);
+
+        // Bar chart
+        const x = ranking.map(r => r.subject_name);
+        const y = ranking.map(r => metric === 'a' ? r.val.toFixed(2) : r.val.toFixed(1));
+        Plotly.newPlot('sbChart', [{
+            x: y,
+            y: x,
+            type: 'bar',
+            orientation: 'h'
+        }], {
+            margin: { l: 120, r: 20, t: 10, b: 40 }
+        });
+
+        // Heatmap: subjects (y) x classes (x)
+        const classes = this.state.classes;
+        const subjects = this.state.subjects;
+        const xLabels = classes.map(c => c.class_name);
+        const yLabels = subjects.map(s => s.subject_name);
+        const z = [];
+
+        subjects.forEach(s => {
+            const row = [];
+            classes.forEach(c => {
+                const rows = this.state.processedGrades.filter(r =>
+                    r.subject_id === s.subject_id &&
+                    r.class_id === c.class_id &&
+                    r.term_id === term
+                );
+                const v = this.getMetricValue(rows, metric);
+                row.push(v == null ? null : v);
+            });
+            z.push(row);
+        });
+
+        Plotly.newPlot('sbHeatmap', [{
+            z: z,
+            x: xLabels,
+            y: yLabels,
+            type: 'heatmap',
+            zauto: true
+        }], {
+            margin: { l: 150, r: 20, t: 10, b: 80 },
+            xaxis: { tickangle: -45 }
+        });
+    },
+
+    /* ---------- RENDER: ATTENDANCE ---------- */
+    renderAttendance: function () {
+        const term = document.getElementById('atTerm').value;
+        const summary = this.getAttendanceSummary(term);
+        if (!summary) {
+            document.getElementById('atTable').innerHTML = "Нет данных по посещаемости.";
+            return;
+        }
+
+        let html = '<table><thead><tr>' +
+            '<th>Класс</th><th>Всего уроков</th><th>Присутствий</th>' +
+            '<th>Уваж. пропуски</th><th>Неуваж. пропуски</th><th>Опоздания</th><th>% присутствий</th>' +
+            '</tr></thead><tbody>';
+
+        summary.classStats.forEach(s => {
+            html += `<tr><td>${s.class_name}</td><td>${s.total}</td><td>${s.pres}</td>` +
+                `<td>${s.exc}</td><td>${s.unexc}</td><td>${s.late}</td>` +
+                `<td>${s.pct.toFixed(1)}%</td></tr>`;
+        });
+        html += '</tbody></table>';
+        document.getElementById('atTable').innerHTML = html;
+    },
+
+    renderAttendanceStudent: function () {
+        const term = document.getElementById('atTerm').value;
+        const classId = document.getElementById('atClass').value;
+        const rows = this.state.attendanceRaw.filter(r => r.term_id === term && r.class_id === classId);
+
+        if (!rows.length) {
+            document.getElementById('atStudentTable').innerHTML = "Нет детальных данных по ученикам.";
+            return;
+        }
+
+        let html = '<table><thead><tr><th>Ученик</th><th>Всего</th><th>Присутствовал</th>' +
+            '<th>Уваж. пропуски</th><th>Неуваж. пропуски</th><th>Опоздания</th></tr></thead><tbody>';
+
+        rows.forEach(r => {
+            const stu = this.state.students.find(s => s.student_id === r.student_id) || {};
+            const name = `${stu.last_name || ''} ${stu.first_name || ''}`.trim() || r.student_id;
+            html += `<tr><td>${name}</td>` +
+                `<td>${r.total_classes || ''}</td>` +
+                `<td>${r.present_classes || ''}</td>` +
+                `<td>${r.absent_excused_classes || ''}</td>` +
+                `<td>${r.absent_unexcused_classes || ''}</td>` +
+                `<td>${r.late_classes || ''}</td></tr>`;
+        });
+
+        html += '</tbody></table>';
+        document.getElementById('atStudentTable').innerHTML = html;
+    }
+};
+
+window.App = App;
+
+/* ==================== WebLLM CLIENT (WebGPU) ==================== */
+const LLMClient = {
+    engine: null,
+    ready: false,
+    modelId: "Llama-3.2-1B-Instruct-q4f32_1-MLC", // можно поменять на другую модель WebLLM
+
+    async init() {
+        const info = document.getElementById("aiSupportInfo");
+        const info2 = document.getElementById("aiServerInfo");
+        const sel = document.getElementById("aiModelSelect");
+
+        const setMsg = (msg) => {
+            if (info) info.textContent = msg;
+            if (info2) info2.textContent = msg;
+        };
+
+        try {
+            setMsg("Загружаем WebLLM модель в браузере (WebGPU)...");
+
+            const webllm = await import("https://esm.run/@mlc-ai/web-llm");
+            const { CreateMLCEngine } = webllm;
+
+            this.engine = await CreateMLCEngine(this.modelId, {
+                initProgressCallback: (report) => {
+                    const p = Math.round((report.progress || 0) * 100);
+                    setMsg(`Загрузка модели ${this.modelId}: ${p}% ...`);
+                }
+            });
+
+            this.ready = true;
+
+            if (sel) {
+                sel.innerHTML = "";
+                const opt = document.createElement("option");
+                opt.value = this.modelId;
+                opt.textContent = this.modelId + " (WebGPU, локально)";
+                sel.appendChild(opt);
+            }
+
+            setMsg("WebLLM готов. Модель работает локально в браузере (без сервера).");
+        } catch (e) {
+            console.error(e);
+            this.ready = false;
+            setMsg("WebLLM/WebGPU недоступен. Используется только числовая сводка (fallback).");
+        }
+    },
+
+    async call(fullPrompt, { max_tokens = 700, temperature = 0.2 } = {}) {
+        if (!this.ready || !this.engine) {
+            throw new Error("WebLLM engine not ready");
+        }
+
+        const messages = [
+            {
+                role: "system",
+                content:
+                    "Ты помощник-аналитик для директора школы. " +
+                    "Опирайся только на данные, которые переданы в сообщении пользователя."
+            },
+            {
+                role: "user",
+                content: fullPrompt
+            }
+        ];
+
+        const reply = await this.engine.chat.completions.create({
+            messages,
+            temperature,
+            max_tokens
+        });
+
+        const choice = reply.choices && reply.choices[0];
+        return (choice && choice.message && choice.message.content) || "";
+    }
+};
+window.LLMClient = LLMClient;
+
+/* ==================== AI LOGIC (AppAI) ==================== */
+window.AppAI = {
+    async explainOverview() {
+        const summary = window.App.buildOverviewSummary();
+        const block = document.getElementById('ovAIBlock');
+        const textEl = document.getElementById('ovAIText');
+        const btn = document.getElementById("ovAIButton");
+
+        if (block) block.style.display = 'block';
+        if (textEl) textEl.textContent = "Анализируем данные...";
+
+        if (btn) btn.disabled = true;
+        try {
+            if (!window.LLMClient?.ready) {
+                textEl.textContent = summary + "\n\n(ИИ в браузере недоступен, показана числовая сводка.)";
+                return;
+            }
+
+            const systemPrompt =
+                "Ты помощник-аналитик для директора школы и учителей. " +
+                "Опирайся только на числа и факты из сводки пользователя. " +
+                "Не придумывай новые данные и не меняй цифры. " +
+                "Пиши структурированно и по-деловому. " +
+                "Дай практичные выводы и рекомендации.";
+
+            const userPrompt =
+                "Вот сводка показателей по школе (обзор дэшборда):\n\n" +
+                summary +
+                "\n\nСделай интерпретацию для педагогического совета:\n" +
+                "1) Кратко опиши общую картину.\n" +
+                "2) Выдели сильные стороны.\n" +
+                "3) Опиши проблемные зоны.\n" +
+                "4) Дай 3–5 практических рекомендаций.\n" +
+                "Не придумывай чисел сверх указанных в сводке.";
+
+            const prompt = systemPrompt + "\n\n" + userPrompt;
+            const reply = await window.LLMClient.call(prompt, { max_tokens: 700, temperature: 0.2 });
+            textEl.textContent = reply || (summary + "\n\n(Ответ пустой, показана сводка.)");
+        } catch (err) {
+            console.error(err);
+            textEl.textContent = summary + "\n\n(Ошибка WebLLM, показана сводка.)";
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    },
+
+    async generateQuarterReport() {
+        const out = document.getElementById("quarterReportOut");
+        const btn = document.getElementById("btnQuarterReport");
+        if (out) out.textContent = "Готовим отчёт...";
+        if (btn) btn.disabled = true;
+
+        try {
+            const summary = window.App.buildQuarterReportSummary();
+
+            if (!window.LLMClient?.ready) {
+                out.textContent = summary + "\n\n(ИИ в браузере недоступен, это структурная сводка для отчёта.)";
+                return;
+            }
+
+            const systemPrompt =
+                "Ты помощник завуча/директора. " +
+                "Пиши официальный отчёт по четверти на 1–2 страницы. " +
+                "Опирайся только на данные сводки. Не выдумывай цифр. " +
+                "Структура: вводная, успеваемость, классы, предметы, посещаемость, выводы, рекомендации.";
+
+            const userPrompt =
+                "Сводка данных для отчёта:\n\n" +
+                summary +
+                "\n\nСформируй связный отчёт.";
+
+            const prompt = systemPrompt + "\n\n" + userPrompt;
+            const reply = await window.LLMClient.call(prompt, { max_tokens: 1000, temperature: 0.2 });
+            out.textContent = reply || summary;
+        } catch (e) {
+            console.error(e);
+            out.textContent = "Ошибка WebLLM. Ниже сводка:\n\n" + window.App.buildQuarterReportSummary();
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    },
+
+    async generatePedCouncilAgenda() {
+        const out = document.getElementById("pedCouncilOut");
+        const btn = document.getElementById("btnPedCouncil");
+        if (out) out.textContent = "Формируем повестку...";
+        if (btn) btn.disabled = true;
+
+        try {
+            const facts = window.App.buildPedCouncilFacts();
+
+            if (!window.LLMClient?.ready) {
+                out.textContent = facts + "\n\n(ИИ в браузере недоступен, это факты для повестки.)";
+                return;
+            }
+
+            const systemPrompt =
+                "Ты помощник педсовета. " +
+                "На основе фактов сформируй повестку заседания, " +
+                "5–7 вопросов для обсуждения и черновик решений/поручений (без имён). " +
+                "Факты не меняй и не добавляй цифр.";
+
+            const userPrompt =
+                "Факты для педсовета:\n\n" +
+                facts +
+                "\n\nСформируй:\n" +
+                "1) Повестку (5–7 пунктов).\n" +
+                "2) Вопросы для обсуждения.\n" +
+                "3) Проект решений педсовета.";
+
+            const prompt = systemPrompt + "\n\n" + userPrompt;
+            const reply = await window.LLMClient.call(prompt, { max_tokens: 900, temperature: 0.3 });
+            out.textContent = reply || facts;
+        } catch (e) {
+            console.error(e);
+            out.textContent = "Ошибка WebLLM. Факты:\n\n" + window.App.buildPedCouncilFacts();
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+};
+
+/* ==================== PAGE SWITCH ==================== */
+function showPage(id, ev) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    if (ev && ev.target) ev.target.classList.add('active');
+}
+
+/* ==================== STARTUP ==================== */
+App.init();
+window.addEventListener("load", () => window.LLMClient.init());
+</script>
+
 </body>
 </html>
